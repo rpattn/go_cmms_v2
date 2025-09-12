@@ -1,0 +1,53 @@
+# config.yaml
+
+# The public URL of your app (used for OAuth redirect URIs).
+# In local dev, this is usually http://localhost:8080
+base_url: "http://localhost:8080"
+
+# Frontend configuration (optional)
+frontend:
+  url: "http://localhost:3000"
+  post_login_path: "/app"
+
+# Database connection string for Postgres
+database:
+  url: "postgres://postgres:admin@localhost:5432/db?sslmode=disable"
+
+# Logging configuration
+logging:
+  level: "info"   # debug|info|warn|error
+  format: "text"  # text|json
+
+# Security and traffic controls
+security:
+  request_id:
+    trust_header: false    # accept incoming X-Request-ID
+  rate_limit:
+    enabled: true          # enable rate limiting middleware
+    rpm: 120               # requests per minute
+    burst: 60              # burst capacity
+    ttl: "30m"            # bucket eviction TTL
+  denylist:
+    enabled: true          # block denylisted users
+  session:
+    sweeper_interval: "5m" # background cleanup cadence
+    cookie_secure: false    # in dev over http, set false; in prod behind https, set true
+    same_site: "lax"        # lax|none|strict (none requires cookie_secure: true)
+  mfa:
+    local_required: false  # require TOTP for local username/password accounts
+
+# Microsoft Entra ID (Azure AD) OAuth2 / OIDC
+microsoft:
+  client_id: ""        # e.g. "00000000-1111-2222-3333-444444444444"
+  client_secret: ""    # client secret from your app registration
+  tenant_id: "organizations"   # or your tenant GUID
+
+# Google OAuth2 / OIDC
+google:
+  client_id: ""        # e.g. "1234567890-abcdef.apps.googleusercontent.com"
+  client_secret: ""
+
+# GitHub OAuth2
+github:
+  client_id: ""        # e.g. "Iv1.1234567890abcdef"
+  client_secret: ""

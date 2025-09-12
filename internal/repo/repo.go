@@ -1,0 +1,64 @@
+// internal/repo/repo.go
+package repo
+
+import (
+	"context"
+	"net/netip"
+	"time"
+
+	"github.com/google/uuid"
+
+	db "yourapp/internal/db/gen" // <-- change if your sqlc package path differs
+	"yourapp/internal/models"
+)
+
+// Repo defines the methods the rest of the app uses.
+type Repo interface {
+	UpsertUserByVerifiedEmail(ctx context.Context, email, name string) (models.User, error)
+	LinkIdentity(ctx context.Context, userID uuid.UUID, provider, subject string) error
+	GetUserByIdentity(ctx context.Context, provider, subject string) (models.User, error)
+	GetUserByEmail(ctx context.Context, email string) (models.User, error)
+
+	FindOrgBySlug(ctx context.Context, slug string) (models.Org, error)
+	FindOrgByID(ctx context.Context, id uuid.UUID) (models.Org, error)
+	FindOrgByTenantID(ctx context.Context, tid string) (models.Org, error)
+	CreateOrg(ctx context.Context, slug, name, tenantID string) (models.Org, error)
+	EnsureMembership(ctx context.Context, orgID, userID uuid.UUID, defaultRole models.OrgRole) (models.OrgRole, error)
+	GetRole(ctx context.Context, orgID, userID uuid.UUID) (models.OrgRole, error)
+	GetUserWithOrgAndRole(ctx context.Context, uid, oid uuid.UUID) (models.User, models.Org, models.OrgRole, error)
+	ListIdentitiesForUser(ctx context.Context, uid uuid.UUID) ([]models.LinkedIdentity, error)
+	ListUserOrgs(ctx context.Context, uid uuid.UUID) ([]models.OrgSummary, error)
+	GetLastSuccessfulLoginByUsername(ctx context.Context, username string) (time.Time, bool)
+	ApplyGroupRoleMappings(ctx context.Context, orgID uuid.UUID, provider string, groupIDs []string) (models.OrgRole, error)
+
+	// Local auth
+	CreateLocalCredential(ctx context.Context, uid uuid.UUID, username, phc string) error
+	GetLocalCredentialByUsername(ctx context.Context, username string) (models.LocalCredential, models.User, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (models.User, error)
+	PickUserOrg(ctx context.Context, uid uuid.UUID) (models.Org, error)
+	SearchUsers(ctx context.Context, org_id uuid.UUID, payload []byte) ([]models.User, error)
+
+	UserHasTOTP(ctx context.Context, uid uuid.UUID) bool
+	SetTOTPSecret(ctx context.Context, uid uuid.UUID, secret, issuer, label string) error
+	GetTOTPSecret(ctx context.Context, uid uuid.UUID) (string, bool)
+
+	// User profile updates
+	UpdateUserProfile(ctx context.Context, userID uuid.UUID, name *string, avatarURL *string, phone *string, country *string) error
+
+	// Login events
+	RecordLoginSuccess(ctx context.Context, username string, ip netip.Addr) error
+	RecordLoginFailure(ctx context.Context, username string, ip netip.Addr) error
+
+	// Invites
+	CreateInvite(ctx context.Context, orgID uuid.UUID, inviterID uuid.UUID, email string, role models.OrgRole, tokenHash string, expiresAt time.Time) error
+	GetInviteByTokenHash(ctx context.Context, tokenHash string) (models.OrgInvite, error)
+	UseInvite(ctx context.Context, tokenHash string) error
+
+	// Local credential management
+	UpdateLocalPasswordHash(ctx context.Context, userID uuid.UUID, phc string) error
+}
+
+// pgRepo wraps the sqlc Queries.
+type pgRepo struct{ q *db.Queries }
+
+func New(q *db.Queries) Repo { return &pgRepo{q: q} }

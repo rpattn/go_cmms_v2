@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Set up Two‑Factor Authentication (TOTP)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; color: #222; }
+    .card { max-width: 640px; border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+    .muted { color: #666; font-size: .95rem; }
+    .row { margin: .75rem 0; }
+    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    button { cursor: pointer; padding: .5rem .8rem; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; }
+    button.primary { background: #1c7ed6; color: white; border-color: #1c7ed6; }
+    input[type=text] { width: 220px; padding: .5rem; font-size: 1rem; }
+    .ok { color: #2b8a3e; }
+    .err { color: #c92a2a; }
+    .hidden { display: none; }
+    .kv { display: grid; grid-template-columns: 140px 1fr; gap: .5rem .75rem; align-items: center; }
+  </style>
+  <script>
+    async function setup() {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = 'Requesting TOTP secret…';
+      statusEl.className = 'muted';
+      try {
+        const res = await fetch('/auth/mfa/totp/setup', { credentials: 'include' });
+        if (!res.ok) throw new Error('setup failed: ' + res.status);
+        const data = await res.json();
+        document.getElementById('secret').textContent = data.secret || '';
+        const url = data.otpauth_url || '';
+        document.getElementById('otpauth').textContent = url;
+        document.getElementById('copyBtn').onclick = () => navigator.clipboard.writeText(url);
+        statusEl.textContent = 'Scan the URL in your authenticator, then enter a 6‑digit code to verify.';
+      } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.className = 'err';
+      }
+    }
+
+    async function verify() {
+      const code = document.getElementById('code').value.trim();
+      const msgEl = document.getElementById('verifyMsg');
+      msgEl.textContent = '';
+      try {
+        const res = await fetch('/auth/mfa/totp/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ code })
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || ('verify failed: ' + res.status));
+        }
+        msgEl.textContent = 'TOTP verified! Redirecting…';
+        msgEl.className = 'ok';
+        setTimeout(() => { window.location.href = '/'; }, 800);
+      } catch (e) {
+        msgEl.textContent = 'Verification error: ' + e.message;
+        msgEl.className = 'err';
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', setup);
+  </script>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+  </head>
+  <body>
+    <div class="card">
+      <h1>Two‑Factor Authentication (TOTP) Required</h1>
+      <p class="muted" id="status">Loading…</p>
+
+      <div class="row">
+        <div class="kv">
+          <div>Secret:</div>
+          <div><code id="secret">…</code></div>
+          <div>otpauth URL:</div>
+          <div>
+            <div class="mono" id="otpauth" style="overflow-wrap:anywhere"></div>
+            <button id="copyBtn" type="button">Copy URL</button>
+          </div>
+        </div>
+        <p class="muted">Add this to your authenticator app (Google Authenticator, 1Password, Authy). If your app supports scanning, paste the otpauth URL into a QR generator and scan the QR code.</p>
+      </div>
+
+      <div class="row">
+        <label for="code">Enter code from your app:</label>
+        <div>
+          <input id="code" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="123456" />
+          <button class="primary" type="button" onclick="verify()">Verify</button>
+        </div>
+        <div id="verifyMsg" class="muted"></div>
+      </div>
+
+      <div class="row">
+        <p class="muted">If you believe you are seeing this in error, contact your administrator.</p>
+      </div>
+    </div>
+  </body>
+  </html>
+

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>API Test</title>
+</head>
+
+<body>
+  <h1>Auth API Test</h1>
+
+  <h2>Signup</h2>
+  <form id="signup-form">
+    <input type="email" id="signup-email" placeholder="Email" required /><br />
+    <input type="text" id="signup-username" placeholder="Username (optional)" /><br />
+    <input type="text" id="signup-name" placeholder="Name" /><br />
+    <input type="password" id="signup-password" placeholder="Password" required /><br />
+    <input type="text" id="signup-org" placeholder="Org slug" /><br />
+    <button type="submit">Signup</button>
+  </form>
+
+  <h2>Sign in with</h2>
+  <form id="signin-microsoft-form">
+    <a href="/auth/microsoft"> <button type="button">Sign in with Microsoft</button> </a>
+  </form>
+  <form id="signin-github-form">
+    <a href="/auth/github"> <button type="button">Sign in with Github</button> </a>
+  </form>
+  <form id="signin-google-form">
+    <a href="/auth/google"> <button type="button">Sign in with Google</button> </a>
+  </form>
+
+  <h2>Login</h2>
+  <form id="login-form">
+    <input type="text" id="login-username" placeholder="Username or email" required value="admin@example.com"/><br />
+    <input type="password" id="login-password" placeholder="Password" required value="5Se_w:EXCvW8RU2" /><br />
+    <input type="text" id="login-totp" placeholder="TOTP code (optional)" /><br />
+    <button type="submit">Login</button>
+  </form>
+  <a href="/static/invite">Invite</a>
+
+  <script>
+    const baseUrl = "http://localhost:8080"; // match your BASE_URL
+
+    document.getElementById("signup-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = {
+        email: document.getElementById("signup-email").value,
+        username: document.getElementById("signup-username").value,
+        name: document.getElementById("signup-name").value,
+        password: document.getElementById("signup-password").value,
+        org_slug: document.getElementById("signup-org").value,
+      };
+      console.log("Signup request:", body);
+      try {
+        const res = await fetch(baseUrl + "/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        console.log("Signup response:", res.status, data);
+      } catch (err) {
+        console.error("Signup error:", err);
+      }
+    });
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = {
+        username: document.getElementById("login-username").value,
+        password: document.getElementById("login-password").value,
+        totp_code: document.getElementById("login-totp").value,
+      };
+      console.log("Login request:", body);
+      try {
+        const res = await fetch(baseUrl + "/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        console.log("Login response:", res.status, data);
+      } catch (err) {
+        console.error("Login error:", err);
+      }
+    });
+  </script>
+</body>
+
+</html>
