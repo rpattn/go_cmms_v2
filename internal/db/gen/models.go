@@ -5,10 +5,120 @@
 package db
 
 import (
+	"database/sql/driver"
+	"fmt"
 	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type AppColumnType string
+
+const (
+	AppColumnTypeText  AppColumnType = "text"
+	AppColumnTypeDate  AppColumnType = "date"
+	AppColumnTypeBool  AppColumnType = "bool"
+	AppColumnTypeEnum  AppColumnType = "enum"
+	AppColumnTypeUuid  AppColumnType = "uuid"
+	AppColumnTypeFloat AppColumnType = "float"
+)
+
+func (e *AppColumnType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AppColumnType(s)
+	case string:
+		*e = AppColumnType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AppColumnType: %T", src)
+	}
+	return nil
+}
+
+type NullAppColumnType struct {
+	AppColumnType AppColumnType `json:"app_column_type"`
+	Valid         bool          `json:"valid"` // Valid is true if AppColumnType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAppColumnType) Scan(value interface{}) error {
+	if value == nil {
+		ns.AppColumnType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AppColumnType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAppColumnType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AppColumnType), nil
+}
+
+type AppColumn struct {
+	ID                    int64         `db:"id" json:"id"`
+	TableID               int64         `db:"table_id" json:"table_id"`
+	Name                  string        `db:"name" json:"name"`
+	Type                  AppColumnType `db:"type" json:"type"`
+	IsRequired            bool          `db:"is_required" json:"is_required"`
+	IsIndexed             bool          `db:"is_indexed" json:"is_indexed"`
+	EnumValues            []string      `db:"enum_values" json:"enum_values"`
+	IsReference           bool          `db:"is_reference" json:"is_reference"`
+	ReferenceTableID      pgtype.Int8   `db:"reference_table_id" json:"reference_table_id"`
+	RequireDifferentTable bool          `db:"require_different_table" json:"require_different_table"`
+}
+
+type AppRow struct {
+	ID        pgtype.UUID        `db:"id" json:"id"`
+	TableID   int64              `db:"table_id" json:"table_id"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+type AppTable struct {
+	ID        int64              `db:"id" json:"id"`
+	Name      string             `db:"name" json:"name"`
+	Slug      string             `db:"slug" json:"slug"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+type AppValuesBool struct {
+	RowID    pgtype.UUID `db:"row_id" json:"row_id"`
+	ColumnID int64       `db:"column_id" json:"column_id"`
+	Value    pgtype.Bool `db:"value" json:"value"`
+}
+
+type AppValuesDate struct {
+	RowID    pgtype.UUID `db:"row_id" json:"row_id"`
+	ColumnID int64       `db:"column_id" json:"column_id"`
+	Value    pgtype.Date `db:"value" json:"value"`
+}
+
+type AppValuesEnum struct {
+	RowID    pgtype.UUID `db:"row_id" json:"row_id"`
+	ColumnID int64       `db:"column_id" json:"column_id"`
+	Value    pgtype.Text `db:"value" json:"value"`
+}
+
+type AppValuesFloat struct {
+	RowID    pgtype.UUID   `db:"row_id" json:"row_id"`
+	ColumnID int64         `db:"column_id" json:"column_id"`
+	Value    pgtype.Float8 `db:"value" json:"value"`
+}
+
+type AppValuesText struct {
+	RowID    pgtype.UUID `db:"row_id" json:"row_id"`
+	ColumnID int64       `db:"column_id" json:"column_id"`
+	Value    pgtype.Text `db:"value" json:"value"`
+}
+
+type AppValuesUuid struct {
+	RowID    pgtype.UUID `db:"row_id" json:"row_id"`
+	ColumnID int64       `db:"column_id" json:"column_id"`
+	Value    pgtype.UUID `db:"value" json:"value"`
+}
 
 type Identity struct {
 	ID       pgtype.UUID `db:"id" json:"id"`
@@ -104,4 +214,10 @@ type UserTotp struct {
 	Issuer    string             `db:"issuer" json:"issuer"`
 	Label     string             `db:"label" json:"label"`
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+type WorkOrderCounter struct {
+	OrganisationID pgtype.UUID `db:"organisation_id" json:"organisation_id"`
+	Year           int32       `db:"year" json:"year"`
+	NextSeq        int32       `db:"next_seq" json:"next_seq"`
 }
