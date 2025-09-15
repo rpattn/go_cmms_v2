@@ -38,8 +38,13 @@ type Repo interface {
 	PickUserOrg(ctx context.Context, uid uuid.UUID) (models.Org, error)
 	SearchUsers(ctx context.Context, org_id uuid.UUID, payload []byte) ([]models.User, error)
 
-    // Generic EAV table search
-    SearchUserTable(ctx context.Context, org_id uuid.UUID, table string, payload []byte) ([]models.TableRow, error)
+	// Generic EAV table search
+	SearchUserTable(ctx context.Context, org_id uuid.UUID, table string, payload []byte) ([]models.TableRow, error)
+	GetUserTableSchema(ctx context.Context, org_id uuid.UUID, table string) ([]models.TableColumn, error)
+
+	// User-defined tables (org-scoped)
+	CreateUserTable(ctx context.Context, orgID uuid.UUID, name string) (models.UserTable, bool, error)
+	ListUserTables(ctx context.Context, orgID uuid.UUID) ([]models.UserTable, error)
 
 	UserHasTOTP(ctx context.Context, uid uuid.UUID) bool
 	SetTOTPSecret(ctx context.Context, uid uuid.UUID, secret, issuer, label string) error

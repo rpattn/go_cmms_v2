@@ -11,6 +11,166 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createUserTable = `-- name: CreateUserTable :one
+WITH s AS (
+  SELECT trim(both '-' from regexp_replace(lower($1::text), '[^a-z0-9]+', '-', 'g')) AS slug
+), ins AS (
+  INSERT INTO app.tables (org_id, name, slug)
+  SELECT $2::uuid, $1::text, s.slug FROM s
+  ON CONFLICT (org_id, slug) DO NOTHING
+  RETURNING id, name, slug, created_at
+)
+SELECT true AS created, id, name, slug, created_at FROM ins
+UNION ALL
+SELECT false AS created, t.id, t.name, t.slug, t.created_at
+FROM app.tables t
+JOIN s ON s.slug = t.slug
+WHERE t.org_id = $2::uuid
+LIMIT 1
+`
+
+type CreateUserTableParams struct {
+	Name  string      `db:"name" json:"name"`
+	OrgID pgtype.UUID `db:"org_id" json:"org_id"`
+}
+
+type CreateUserTableRow struct {
+	Created   bool               `db:"created" json:"created"`
+	ID        int64              `db:"id" json:"id"`
+	Name      string             `db:"name" json:"name"`
+	Slug      string             `db:"slug" json:"slug"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+func (q *Queries) CreateUserTable(ctx context.Context, arg CreateUserTableParams) (CreateUserTableRow, error) {
+	row := q.db.QueryRow(ctx, createUserTable, arg.Name, arg.OrgID)
+	var i CreateUserTableRow
+	err := row.Scan(
+		&i.Created,
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getUserTableSchema = `-- name: GetUserTableSchema :many
+WITH params AS (
+  SELECT
+    $1::text AS table_name,
+    $2::uuid     AS org_id
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+  ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+  LIMIT 1
+)
+SELECT 
+  c.id,
+  c.name,
+  c.type::text AS type,
+  c.is_required,
+  c.is_indexed,
+  to_jsonb(c.enum_values) AS enum_values,
+  c.is_reference,
+  c.reference_table_id,
+  c.require_different_table
+FROM app.columns c
+WHERE c.table_id = (SELECT id FROM table_id)
+ORDER BY c.id ASC
+`
+
+type GetUserTableSchemaParams struct {
+	TableName string      `db:"table_name" json:"table_name"`
+	OrgID     pgtype.UUID `db:"org_id" json:"org_id"`
+}
+
+type GetUserTableSchemaRow struct {
+	ID                    int64       `db:"id" json:"id"`
+	Name                  string      `db:"name" json:"name"`
+	Type                  string      `db:"type" json:"type"`
+	IsRequired            bool        `db:"is_required" json:"is_required"`
+	IsIndexed             bool        `db:"is_indexed" json:"is_indexed"`
+	EnumValues            []byte      `db:"enum_values" json:"enum_values"`
+	IsReference           bool        `db:"is_reference" json:"is_reference"`
+	ReferenceTableID      pgtype.Int8 `db:"reference_table_id" json:"reference_table_id"`
+	RequireDifferentTable bool        `db:"require_different_table" json:"require_different_table"`
+}
+
+func (q *Queries) GetUserTableSchema(ctx context.Context, arg GetUserTableSchemaParams) ([]GetUserTableSchemaRow, error) {
+	rows, err := q.db.Query(ctx, getUserTableSchema, arg.TableName, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUserTableSchemaRow
+	for rows.Next() {
+		var i GetUserTableSchemaRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Type,
+			&i.IsRequired,
+			&i.IsIndexed,
+			&i.EnumValues,
+			&i.IsReference,
+			&i.ReferenceTableID,
+			&i.RequireDifferentTable,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserTables = `-- name: ListUserTables :many
+SELECT id, name, slug, created_at
+FROM app.tables
+WHERE org_id = $1::uuid
+ORDER BY created_at DESC, id DESC
+`
+
+type ListUserTablesRow struct {
+	ID        int64              `db:"id" json:"id"`
+	Name      string             `db:"name" json:"name"`
+	Slug      string             `db:"slug" json:"slug"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+func (q *Queries) ListUserTables(ctx context.Context, orgID pgtype.UUID) ([]ListUserTablesRow, error) {
+	rows, err := q.db.Query(ctx, listUserTables, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserTablesRow
+	for rows.Next() {
+		var i ListUserTablesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchUserTable = `-- name: SearchUserTable :many
 WITH params AS (
   SELECT
@@ -19,16 +179,13 @@ WITH params AS (
     $3::uuid     AS org_id
 ),
 table_id AS (
-  SELECT COALESCE(
-    (SELECT id FROM app.tables 
-       WHERE (org_id = (SELECT org_id FROM params) OR org_id IS NULL)
-         AND slug = lower((SELECT table_name FROM params))
-    ),
-    (SELECT id FROM app.tables 
-       WHERE (org_id = (SELECT org_id FROM params) OR org_id IS NULL)
-         AND lower(name) = lower((SELECT table_name FROM params))
-    )
-  ) AS id
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+  ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+  LIMIT 1
 ),
 page AS (
   SELECT

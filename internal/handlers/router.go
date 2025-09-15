@@ -25,6 +25,9 @@ func RegisterRoutes(mux *chi.Mux, r repo.Repo) {
     // Generic EAV table search routes
     mux.Route("/tables", func(sr chi.Router) {
         sr.Use(middleware.RequireAuth(r))
+        // Create and list org-scoped user tables
+        sr.Get("/", t.List)
+        sr.Post("/", t.Create)
         sr.Post("/{table}/search", t.Search)
     })
 

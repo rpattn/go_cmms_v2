@@ -49,10 +49,53 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+    // Fetch schema first, then rows
+    schema, err := h.repo.GetUserTableSchema(r.Context(), orgID, table)
+    if err != nil {
+        httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "schema fetch failed"})
+        return
+    }
     rows, err := h.repo.SearchUserTable(r.Context(), orgID, table, payload)
-	if err != nil {
-		httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "search failed"})
-		return
-	}
-	httpserver.JSON(w, http.StatusOK, map[string]any{"content": rows})
+    if err != nil {
+        httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "search failed"})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"columns": schema, "content": rows})
+}
+
+// Create handles POST /tables with JSON body {"name": "..."} to create a new table for the org
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    defer r.Body.Close()
+    var body struct{ Name string `json:"name"` }
+    dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+    if err := dec.Decode(&body); err != nil || body.Name == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON or missing name"})
+        return
+    }
+    table, created, err := h.repo.CreateUserTable(r.Context(), orgID, body.Name)
+    if err != nil {
+        httpserver.JSON(w, http.StatusConflict, map[string]string{"error": "create failed"})
+        return
+    }
+    httpserver.JSON(w, http.StatusCreated, map[string]any{"created": created, "table": table})
+}
+
+// List handles GET /tables to list org-scoped user-defined tables
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    tables, err := h.repo.ListUserTables(r.Context(), orgID)
+    if err != nil {
+        httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"tables": tables})
 }

@@ -4,6 +4,7 @@ import (
     "context"
     "encoding/json"
     "log/slog"
+    "time"
 
     "github.com/google/uuid"
     db "yourapp/internal/db/gen"
@@ -40,4 +41,90 @@ func (p *pgRepo) SearchUserTable(ctx context.Context, org_id uuid.UUID, table st
 	}
 	slog.DebugContext(ctx, "SearchUserTable ok", "count", len(out))
 	return out, nil
+}
+
+// GetUserTableSchema returns the list of columns for a user-defined table in an org.
+func (p *pgRepo) GetUserTableSchema(ctx context.Context, org_id uuid.UUID, table string) ([]models.TableColumn, error) {
+    slog.DebugContext(ctx, "GetUserTableSchema", "org_id", org_id.String(), "table", table)
+    rows, err := p.q.GetUserTableSchema(ctx, db.GetUserTableSchemaParams{
+        TableName: table,
+        OrgID:     fromUUID(org_id),
+    })
+    if err != nil {
+        slog.ErrorContext(ctx, "GetUserTableSchema failed", "err", err)
+        return nil, err
+    }
+    out := make([]models.TableColumn, 0, len(rows))
+    for _, r := range rows {
+        var enums []string
+        if len(r.EnumValues) > 0 {
+            if err := json.Unmarshal(r.EnumValues, &enums); err != nil {
+                slog.WarnContext(ctx, "GetUserTableSchema: bad enum_values JSON", "err", err)
+            }
+        }
+        var refID *int64
+        if r.ReferenceTableID.Valid {
+            v := r.ReferenceTableID.Int64
+            refID = &v
+        }
+        out = append(out, models.TableColumn{
+            ID:                    r.ID,
+            Name:                  r.Name,
+            Type:                  r.Type,
+            Required:              r.IsRequired,
+            Indexed:               r.IsIndexed,
+            EnumValues:            enums,
+            IsReference:           r.IsReference,
+            ReferenceTableID:      refID,
+            RequireDifferentTable: r.RequireDifferentTable,
+        })
+    }
+    return out, nil
+}
+
+func (p *pgRepo) CreateUserTable(ctx context.Context, orgID uuid.UUID, name string) (models.UserTable, bool, error) {
+    slog.DebugContext(ctx, "CreateUserTable", "org_id", orgID.String(), "name", name)
+    row, err := p.q.CreateUserTable(ctx, db.CreateUserTableParams{
+        OrgID: fromUUID(orgID),
+        Name:  name,
+    })
+    if err != nil {
+        slog.ErrorContext(ctx, "CreateUserTable failed", "err", err)
+        return models.UserTable{}, false, err
+    }
+    ut := models.UserTable{
+        ID:   row.ID,
+        Name: row.Name,
+        Slug: row.Slug,
+        CreatedAt: func() time.Time {
+            if row.CreatedAt.Valid {
+                return row.CreatedAt.Time
+            }
+            return time.Now()
+        }(),
+    }
+    return ut, row.Created, nil
+}
+
+func (p *pgRepo) ListUserTables(ctx context.Context, orgID uuid.UUID) ([]models.UserTable, error) {
+    slog.DebugContext(ctx, "ListUserTables", "org_id", orgID.String())
+    rows, err := p.q.ListUserTables(ctx, fromUUID(orgID))
+    if err != nil {
+        slog.ErrorContext(ctx, "ListUserTables failed", "err", err)
+        return nil, err
+    }
+    out := make([]models.UserTable, 0, len(rows))
+    for _, r := range rows {
+        created := time.Time{}
+        if r.CreatedAt.Valid {
+            created = r.CreatedAt.Time
+        }
+        out = append(out, models.UserTable{
+            ID:        r.ID,
+            Name:      r.Name,
+            Slug:      r.Slug,
+            CreatedAt: created,
+        })
+    }
+    return out, nil
 }

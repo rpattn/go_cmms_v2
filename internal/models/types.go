@@ -114,3 +114,24 @@ type TableRow struct {
     Data       map[string]any    `json:"data"`
     TotalCount int64             `json:"total_count"`
 }
+
+// TableColumn describes a user-defined column for rendering/searching.
+type TableColumn struct {
+    ID                    int64    `json:"id"`
+    Name                  string   `json:"name"`
+    Type                  string   `json:"type"`
+    Required              bool     `json:"required"`
+    Indexed               bool     `json:"indexed"`
+    EnumValues            []string `json:"enum_values,omitempty"`
+    IsReference           bool     `json:"is_reference"`
+    ReferenceTableID      *int64   `json:"reference_table_id,omitempty"`
+    RequireDifferentTable bool     `json:"require_different_table"`
+}
+
+// UserTable represents a user-defined logical table (per org).
+type UserTable struct {
+    ID        int64     `json:"id"`
+    Name      string    `json:"name"`
+    Slug      string    `json:"slug"`
+    CreatedAt time.Time `json:"created_at"`
+}
