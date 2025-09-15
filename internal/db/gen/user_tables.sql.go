@@ -11,6 +11,140 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addUserTableColumn = `-- name: AddUserTableColumn :one
+WITH params AS (
+  SELECT
+    $1::uuid     AS org_id,
+    $2::text AS table_name,
+    $3::text AS column_name,
+    $4::text   AS col_type,
+    $5::boolean AS is_required,
+    $6::boolean  AS is_indexed,
+    $7::jsonb   AS enum_values,
+    $8::boolean AS is_reference,
+    $9::text AS reference_table,
+    $10::boolean AS require_different_table
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+  ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+  LIMIT 1
+),
+cname AS (
+  SELECT trim(both '_' from regexp_replace(lower((SELECT column_name FROM params)), '[^a-z0-9_]+', '_', 'g')) AS name
+),
+refname AS (
+  SELECT NULLIF((SELECT reference_table FROM params), '') AS ref
+),
+ref_table_id AS (
+  SELECT (
+    SELECT id
+    FROM app.tables t
+    WHERE (t.slug = lower((SELECT ref FROM refname))
+           OR lower(t.name) = lower((SELECT ref FROM refname)))
+      AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+    ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+    LIMIT 1
+  ) AS id
+),
+ins AS (
+  INSERT INTO app.columns (
+    table_id, name, type, is_required, is_indexed, enum_values, is_reference, reference_table_id, require_different_table
+  )
+  SELECT 
+    (SELECT id FROM table_id),
+    (SELECT name FROM cname),
+    (SELECT col_type::app.column_type FROM params),
+    (SELECT is_required FROM params),
+    (SELECT is_indexed FROM params),
+    (
+      CASE WHEN (SELECT col_type FROM params) = 'enum' THEN
+        ARRAY(SELECT jsonb_array_elements_text((SELECT enum_values FROM params)))
+      ELSE NULL::text[] END
+    ),
+    (SELECT is_reference FROM params),
+    (SELECT id FROM ref_table_id),
+    (SELECT require_different_table FROM params)
+  ON CONFLICT (table_id, name) DO NOTHING
+  RETURNING id, table_id, name, type::text AS type, is_required, is_indexed, enum_values, is_reference, reference_table_id, require_different_table
+),
+_ensure AS (
+  SELECT CASE WHEN (SELECT is_indexed FROM params) THEN app.ensure_index(id) END FROM ins
+)
+SELECT true AS created,
+       id, table_id, name, type, is_required, is_indexed, to_jsonb(enum_values) AS enum_values,
+       is_reference, reference_table_id, require_different_table
+FROM ins
+UNION ALL
+SELECT false AS created,
+       c.id, c.table_id, c.name, c.type::text AS type, c.is_required, c.is_indexed, to_jsonb(c.enum_values) AS enum_values,
+       c.is_reference, c.reference_table_id, c.require_different_table
+FROM app.columns c, cname
+WHERE c.table_id = (SELECT id FROM table_id) AND c.name = (SELECT name FROM cname)
+LIMIT 1
+`
+
+type AddUserTableColumnParams struct {
+	OrgID                 pgtype.UUID `db:"org_id" json:"org_id"`
+	TableName             string      `db:"table_name" json:"table_name"`
+	ColumnName            string      `db:"column_name" json:"column_name"`
+	ColType               string      `db:"col_type" json:"col_type"`
+	IsRequired            bool        `db:"is_required" json:"is_required"`
+	IsIndexed             bool        `db:"is_indexed" json:"is_indexed"`
+	EnumValues            []byte      `db:"enum_values" json:"enum_values"`
+	IsReference           bool        `db:"is_reference" json:"is_reference"`
+	ReferenceTable        string      `db:"reference_table" json:"reference_table"`
+	RequireDifferentTable bool        `db:"require_different_table" json:"require_different_table"`
+}
+
+type AddUserTableColumnRow struct {
+	Created               bool        `db:"created" json:"created"`
+	ID                    int64       `db:"id" json:"id"`
+	TableID               int64       `db:"table_id" json:"table_id"`
+	Name                  string      `db:"name" json:"name"`
+	Type                  string      `db:"type" json:"type"`
+	IsRequired            bool        `db:"is_required" json:"is_required"`
+	IsIndexed             bool        `db:"is_indexed" json:"is_indexed"`
+	EnumValues            []byte      `db:"enum_values" json:"enum_values"`
+	IsReference           bool        `db:"is_reference" json:"is_reference"`
+	ReferenceTableID      pgtype.Int8 `db:"reference_table_id" json:"reference_table_id"`
+	RequireDifferentTable bool        `db:"require_different_table" json:"require_different_table"`
+}
+
+func (q *Queries) AddUserTableColumn(ctx context.Context, arg AddUserTableColumnParams) (AddUserTableColumnRow, error) {
+	row := q.db.QueryRow(ctx, addUserTableColumn,
+		arg.OrgID,
+		arg.TableName,
+		arg.ColumnName,
+		arg.ColType,
+		arg.IsRequired,
+		arg.IsIndexed,
+		arg.EnumValues,
+		arg.IsReference,
+		arg.ReferenceTable,
+		arg.RequireDifferentTable,
+	)
+	var i AddUserTableColumnRow
+	err := row.Scan(
+		&i.Created,
+		&i.ID,
+		&i.TableID,
+		&i.Name,
+		&i.Type,
+		&i.IsRequired,
+		&i.IsIndexed,
+		&i.EnumValues,
+		&i.IsReference,
+		&i.ReferenceTableID,
+		&i.RequireDifferentTable,
+	)
+	return i, err
+}
+
 const createUserTable = `-- name: CreateUserTable :one
 WITH s AS (
   SELECT trim(both '-' from regexp_replace(lower($1::text), '[^a-z0-9]+', '-', 'g')) AS slug
@@ -130,6 +264,48 @@ func (q *Queries) GetUserTableSchema(ctx context.Context, arg GetUserTableSchema
 		return nil, err
 	}
 	return items, nil
+}
+
+const insertUserTableRow = `-- name: InsertUserTableRow :one
+WITH params AS (
+  SELECT
+    $1::uuid     AS org_id,
+    $2::text AS table_name,
+    $3::jsonb    AS values
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+  ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+  LIMIT 1
+),
+ins AS (
+  SELECT app.insert_row((SELECT id FROM table_id), (SELECT values FROM params)) AS row_id
+)
+SELECT i.row_id,
+       app.row_to_json(i.row_id) AS data
+FROM ins i
+`
+
+type InsertUserTableRowParams struct {
+	OrgID     pgtype.UUID `db:"org_id" json:"org_id"`
+	TableName string      `db:"table_name" json:"table_name"`
+	Values    []byte      `db:"values" json:"values"`
+}
+
+type InsertUserTableRowRow struct {
+	RowID pgtype.UUID `db:"row_id" json:"row_id"`
+	Data  []byte      `db:"data" json:"data"`
+}
+
+func (q *Queries) InsertUserTableRow(ctx context.Context, arg InsertUserTableRowParams) (InsertUserTableRowRow, error) {
+	row := q.db.QueryRow(ctx, insertUserTableRow, arg.OrgID, arg.TableName, arg.Values)
+	var i InsertUserTableRowRow
+	err := row.Scan(&i.RowID, &i.Data)
+	return i, err
 }
 
 const listUserTables = `-- name: ListUserTables :many

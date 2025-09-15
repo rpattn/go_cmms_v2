@@ -46,6 +46,12 @@ type Repo interface {
 	CreateUserTable(ctx context.Context, orgID uuid.UUID, name string) (models.UserTable, bool, error)
 	ListUserTables(ctx context.Context, orgID uuid.UUID) ([]models.UserTable, error)
 
+	// Columns management
+	AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error)
+
+	// Rows management
+	InsertUserTableRow(ctx context.Context, orgID uuid.UUID, table string, values []byte) (models.TableRow, error)
+
 	UserHasTOTP(ctx context.Context, uid uuid.UUID) bool
 	SetTOTPSecret(ctx context.Context, uid uuid.UUID, secret, issuer, label string) error
 	GetTOTPSecret(ctx context.Context, uid uuid.UUID) (string, bool)

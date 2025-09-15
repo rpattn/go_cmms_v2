@@ -128,6 +128,18 @@ type TableColumn struct {
     RequireDifferentTable bool     `json:"require_different_table"`
 }
 
+// TableColumnInput mirrors TableColumn fields the user can set when creating.
+type TableColumnInput struct {
+    Name                  string   `json:"name"`
+    Type                  string   `json:"type"` // text|date|bool|enum|uuid|float
+    Required              bool     `json:"required"`
+    Indexed               bool     `json:"indexed"`
+    EnumValues            []string `json:"enum_values,omitempty"`
+    IsReference           bool     `json:"is_reference"`
+    ReferenceTable        string   `json:"reference_table,omitempty"` // slug or name
+    RequireDifferentTable bool     `json:"require_different_table"`
+}
+
 // UserTable represents a user-defined logical table (per org).
 type UserTable struct {
     ID        int64     `json:"id"`

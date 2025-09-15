@@ -9,6 +9,7 @@ import (
     "yourapp/internal/auth"
     httpserver "yourapp/internal/http"
     "yourapp/internal/repo"
+    "yourapp/internal/models"
 )
 
 type Handler struct {
@@ -98,4 +99,69 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
         return
     }
     httpserver.JSON(w, http.StatusOK, map[string]any{"tables": tables})
+}
+
+// AddColumn handles POST /tables/{table}/columns to add a column to a user-defined table
+func (h *Handler) AddColumn(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    table := chi.URLParam(r, "table")
+    if table == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "missing table"})
+        return
+    }
+    defer r.Body.Close()
+    var input models.TableColumnInput
+    dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+    if err := dec.Decode(&input); err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+        return
+    }
+    if input.Name == "" || input.Type == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "name and type are required"})
+        return
+    }
+    col, created, err := h.repo.AddUserTableColumn(r.Context(), orgID, table, input)
+    if err != nil {
+        httpserver.JSON(w, http.StatusConflict, map[string]string{"error": "add column failed"})
+        return
+    }
+    status := http.StatusCreated
+    if !created { status = http.StatusOK }
+    httpserver.JSON(w, status, map[string]any{"created": created, "column": col})
+}
+
+// AddRow handles POST /tables/{table}/rows to insert a row with JSON body values
+func (h *Handler) AddRow(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    table := chi.URLParam(r, "table")
+    if table == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "missing table"})
+        return
+    }
+    defer r.Body.Close()
+    var body map[string]any
+    dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+    if err := dec.Decode(&body); err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+        return
+    }
+    payload, err := json.Marshal(body)
+    if err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "failed to encode values"})
+        return
+    }
+    row, err := h.repo.InsertUserTableRow(r.Context(), orgID, table, payload)
+    if err != nil {
+        httpserver.JSON(w, http.StatusConflict, map[string]string{"error": "insert failed"})
+        return
+    }
+    httpserver.JSON(w, http.StatusCreated, map[string]any{"row": row})
 }
