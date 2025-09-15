@@ -10,7 +10,7 @@ table_id AS (
   FROM app.tables t
   WHERE (t.slug = lower((SELECT table_name FROM params))
          OR lower(t.name) = lower((SELECT table_name FROM params)))
-    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+    AND t.org_id = (SELECT org_id FROM params)
   ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
   LIMIT 1
 ),
@@ -261,10 +261,17 @@ SELECT (SELECT COUNT(*) > 0 FROM del) AS deleted,
 
 -- name: GetRowData :one
 WITH r AS (
-  SELECT 1 FROM app.rows WHERE id = sqlc.arg(row_id)::uuid
+  SELECT r.id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id
+  WHERE r.id = sqlc.arg(row_id)::uuid
+    AND t.org_id = sqlc.arg(org_id)::uuid
 )
 SELECT EXISTS(SELECT 1 FROM r) AS found,
-       app.row_to_json(sqlc.arg(row_id)::uuid) AS data;
+       CASE WHEN EXISTS(SELECT 1 FROM r)
+            THEN app.row_to_json(sqlc.arg(row_id)::uuid)
+            ELSE NULL
+       END AS data;
 
 -- name: LookupIndexedRows :many
 WITH params AS (

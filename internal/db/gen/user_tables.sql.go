@@ -292,19 +292,31 @@ func (q *Queries) DeleteUserTableRow(ctx context.Context, arg DeleteUserTableRow
 
 const getRowData = `-- name: GetRowData :one
 WITH r AS (
-  SELECT 1 FROM app.rows WHERE id = $1::uuid
+  SELECT r.id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id
+  WHERE r.id = $1::uuid
+    AND t.org_id = $2::uuid
 )
 SELECT EXISTS(SELECT 1 FROM r) AS found,
-       app.row_to_json($1::uuid) AS data
+       CASE WHEN EXISTS(SELECT 1 FROM r)
+            THEN app.row_to_json($1::uuid)
+            ELSE NULL
+       END AS data
 `
 
-type GetRowDataRow struct {
-	Found bool   `db:"found" json:"found"`
-	Data  []byte `db:"data" json:"data"`
+type GetRowDataParams struct {
+	RowID pgtype.UUID `db:"row_id" json:"row_id"`
+	OrgID pgtype.UUID `db:"org_id" json:"org_id"`
 }
 
-func (q *Queries) GetRowData(ctx context.Context, rowID pgtype.UUID) (GetRowDataRow, error) {
-	row := q.db.QueryRow(ctx, getRowData, rowID)
+type GetRowDataRow struct {
+	Found bool        `db:"found" json:"found"`
+	Data  interface{} `db:"data" json:"data"`
+}
+
+func (q *Queries) GetRowData(ctx context.Context, arg GetRowDataParams) (GetRowDataRow, error) {
+	row := q.db.QueryRow(ctx, getRowData, arg.RowID, arg.OrgID)
 	var i GetRowDataRow
 	err := row.Scan(&i.Found, &i.Data)
 	return i, err
@@ -708,7 +720,7 @@ table_id AS (
   FROM app.tables t
   WHERE (t.slug = lower((SELECT table_name FROM params))
          OR lower(t.name) = lower((SELECT table_name FROM params)))
-    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+    AND t.org_id = (SELECT org_id FROM params)
   ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
   LIMIT 1
 ),

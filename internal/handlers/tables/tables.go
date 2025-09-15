@@ -214,7 +214,8 @@ func (h *Handler) AddRow(w http.ResponseWriter, r *http.Request) {
 // LookupRow handles POST /tables/rows/lookup with JSON body {"id":"<uuid>"}
 // Returns the EAV-composed JSON for that row id using app.row_to_json.
 func (h *Handler) LookupRow(w http.ResponseWriter, r *http.Request) {
-    if _, ok := auth.OrgFromContext(r.Context()); !ok {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
         httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
         return
     }
@@ -230,7 +231,7 @@ func (h *Handler) LookupRow(w http.ResponseWriter, r *http.Request) {
         httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid UUID"})
         return
     }
-    data, found, err := h.repo.GetRowData(r.Context(), uid)
+    data, found, err := h.repo.GetRowData(r.Context(), orgID, uid)
     if err != nil {
         status, msg := httpserver.PGErrorMessage(err, "lookup failed")
         httpserver.JSON(w, status, map[string]string{"error": msg})

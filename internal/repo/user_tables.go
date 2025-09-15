@@ -1,16 +1,31 @@
 package repo
 
 import (
-	"context"
-	"encoding/json"
-	"log/slog"
-	"time"
+    "context"
+    "encoding/json"
+    "log/slog"
+    "time"
 
-	db "yourapp/internal/db/gen"
-	"yourapp/internal/models"
+    db "yourapp/internal/db/gen"
+    "yourapp/internal/models"
 
-	"github.com/google/uuid"
+    "github.com/google/uuid"
 )
+
+// toJSONBytes tries to normalize various JSON representations to a []byte
+func toJSONBytes(v any) []byte {
+    switch x := v.(type) {
+    case []byte:
+        return x
+    case json.RawMessage:
+        return []byte(x)
+    case string:
+        return []byte(x)
+    default:
+        b, _ := json.Marshal(x)
+        return b
+    }
+}
 
 // SearchUserTable exposes the generic search over user-defined EAV tables.
 func (p *pgRepo) SearchUserTable(ctx context.Context, org_id uuid.UUID, table string, payload []byte) ([]models.TableRow, error) {
@@ -27,13 +42,13 @@ func (p *pgRepo) SearchUserTable(ctx context.Context, org_id uuid.UUID, table st
 	}
 	out := make([]models.TableRow, 0, len(rows))
 	for _, r := range rows {
-		var data map[string]any
-		if len(r.Data) > 0 {
-			if err := json.Unmarshal(r.Data, &data); err != nil {
-				// If malformed row JSON, still return row with empty data rather than failing whole page
-				slog.WarnContext(ctx, "SearchUserTable: bad row JSON", "err", err)
-			}
-		}
+        var data map[string]any
+        if b := toJSONBytes(r.Data); len(b) > 0 {
+            if err := json.Unmarshal(b, &data); err != nil {
+                // If malformed row JSON, still return row with empty data rather than failing whole page
+                slog.WarnContext(ctx, "SearchUserTable: bad row JSON", "err", err)
+            }
+        }
 		out = append(out, models.TableRow{
 			RowID:      toUUID(r.RowID),
 			Data:       data,
@@ -260,12 +275,12 @@ func (p *pgRepo) InsertUserTableRow(ctx context.Context, orgID uuid.UUID, table 
 		slog.ErrorContext(ctx, "InsertUserTableRow failed", "err", err)
 		return models.TableRow{}, err
 	}
-	var data map[string]any
-	if len(row.Data) > 0 {
-		if err := json.Unmarshal(row.Data, &data); err != nil {
-			slog.WarnContext(ctx, "InsertUserTableRow: bad row JSON", "err", err)
-		}
-	}
+    var data map[string]any
+    if b := toJSONBytes(row.Data); len(b) > 0 {
+        if err := json.Unmarshal(b, &data); err != nil {
+            slog.WarnContext(ctx, "InsertUserTableRow: bad row JSON", "err", err)
+        }
+    }
 	return models.TableRow{
 		RowID:      toUUID(row.RowID),
 		Data:       data,
@@ -273,9 +288,12 @@ func (p *pgRepo) InsertUserTableRow(ctx context.Context, orgID uuid.UUID, table 
 	}, nil
 }
 
-func (p *pgRepo) GetRowData(ctx context.Context, rowID uuid.UUID) (map[string]any, bool, error) {
-	slog.DebugContext(ctx, "GetRowData", "row_id", rowID.String())
-	r, err := p.q.GetRowData(ctx, toPgUUID(rowID))
+func (p *pgRepo) GetRowData(ctx context.Context, orgID uuid.UUID, rowID uuid.UUID) (map[string]any, bool, error) {
+	slog.DebugContext(ctx, "GetRowData", "org_id", orgID.String(), "row_id", rowID.String())
+	r, err := p.q.GetRowData(ctx, db.GetRowDataParams{
+		OrgID: toPgUUID(orgID),
+		RowID: toPgUUID(rowID),
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "GetRowData failed", "err", err)
 		return nil, false, err
@@ -283,72 +301,83 @@ func (p *pgRepo) GetRowData(ctx context.Context, rowID uuid.UUID) (map[string]an
 	if !r.Found {
 		return nil, false, nil
 	}
-	var data map[string]any
-	if len(r.Data) > 0 {
-		if err := json.Unmarshal(r.Data, &data); err != nil {
-			slog.WarnContext(ctx, "GetRowData: bad row JSON", "err", err)
-		}
-	}
+    var data map[string]any
+    if b := toJSONBytes(r.Data); len(b) > 0 {
+        if err := json.Unmarshal(b, &data); err != nil {
+            slog.WarnContext(ctx, "GetRowData: bad row JSON", "err", err)
+        }
+    }
 	return data, true, nil
 }
 
 func (p *pgRepo) LookupIndexedRows(ctx context.Context, orgID uuid.UUID, table string, field *string, q *string, limit int) ([]models.IndexedRow, error) {
-    slog.DebugContext(ctx, "LookupIndexedRows", "org_id", orgID.String(), "table", table, "field", ptrStr(field), "q", ptrStr(q), "limit", limit)
-    var fld, qq string
-    if field != nil { fld = *field }
-    if q != nil { qq = *q }
-    if limit <= 0 { limit = 20 }
-    rows, err := p.q.LookupIndexedRows(ctx, db.LookupIndexedRowsParams{
-        OrgID:     fromUUID(orgID),
-        TableName: table,
-        Field:     fld,
-        Q:         qq,
-        LimitCount:     int32(limit),
-    })
-    if err != nil {
-        slog.ErrorContext(ctx, "LookupIndexedRows failed", "err", err)
-        return nil, err
-    }
-    out := make([]models.IndexedRow, 0, len(rows))
-    for _, r := range rows {
-        out = append(out, models.IndexedRow{ID: toUUID(r.RowID), Label: r.Label.String})
-    }
-    return out, nil
+	slog.DebugContext(ctx, "LookupIndexedRows", "org_id", orgID.String(), "table", table, "field", ptrStr(field), "q", ptrStr(q), "limit", limit)
+	var fld, qq string
+	if field != nil {
+		fld = *field
+	}
+	if q != nil {
+		qq = *q
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := p.q.LookupIndexedRows(ctx, db.LookupIndexedRowsParams{
+		OrgID:      fromUUID(orgID),
+		TableName:  table,
+		Field:      fld,
+		Q:          qq,
+		LimitCount: int32(limit),
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "LookupIndexedRows failed", "err", err)
+		return nil, err
+	}
+	out := make([]models.IndexedRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, models.IndexedRow{ID: toUUID(r.RowID), Label: r.Label.String})
+	}
+	return out, nil
 }
 
-func ptrStr(p *string) string { if p == nil { return "" }; return *p }
+func ptrStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
 
 func (p *pgRepo) ListIndexedFields(ctx context.Context, orgID uuid.UUID) ([]models.IndexedField, error) {
-    slog.DebugContext(ctx, "ListIndexedFields", "org_id", orgID.String())
-    rows, err := p.q.ListIndexedColumns(ctx, fromUUID(orgID))
-    if err != nil {
-        slog.ErrorContext(ctx, "ListIndexedFields failed", "err", err)
-        return nil, err
-    }
-    out := make([]models.IndexedField, 0, len(rows))
-    for _, r := range rows {
-        out = append(out, models.IndexedField{
-            TableID:    r.TableID,
-            TableSlug:  r.TableSlug,
-            TableName:  r.TableName,
-            ColumnID:   r.ColumnID,
-            ColumnName: r.ColumnName,
-            ColumnType: r.ColumnType,
-        })
-    }
-    return out, nil
+	slog.DebugContext(ctx, "ListIndexedFields", "org_id", orgID.String())
+	rows, err := p.q.ListIndexedColumns(ctx, fromUUID(orgID))
+	if err != nil {
+		slog.ErrorContext(ctx, "ListIndexedFields failed", "err", err)
+		return nil, err
+	}
+	out := make([]models.IndexedField, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, models.IndexedField{
+			TableID:    r.TableID,
+			TableSlug:  r.TableSlug,
+			TableName:  r.TableName,
+			ColumnID:   r.ColumnID,
+			ColumnName: r.ColumnName,
+			ColumnType: r.ColumnType,
+		})
+	}
+	return out, nil
 }
 
 func (p *pgRepo) DeleteUserTableRow(ctx context.Context, orgID uuid.UUID, table string, rowID uuid.UUID) (bool, error) {
-    slog.DebugContext(ctx, "DeleteUserTableRow", "org_id", orgID.String(), "table", table, "row_id", rowID.String())
-    r, err := p.q.DeleteUserTableRow(ctx, db.DeleteUserTableRowParams{
-        OrgID:     fromUUID(orgID),
-        TableName: table,
-        RowID:     fromUUID(rowID),
-    })
-    if err != nil {
-        slog.ErrorContext(ctx, "DeleteUserTableRow failed", "err", err)
-        return false, err
-    }
-    return r.Deleted, nil
+	slog.DebugContext(ctx, "DeleteUserTableRow", "org_id", orgID.String(), "table", table, "row_id", rowID.String())
+	r, err := p.q.DeleteUserTableRow(ctx, db.DeleteUserTableRowParams{
+		OrgID:     fromUUID(orgID),
+		TableName: table,
+		RowID:     fromUUID(rowID),
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "DeleteUserTableRow failed", "err", err)
+		return false, err
+	}
+	return r.Deleted, nil
 }
