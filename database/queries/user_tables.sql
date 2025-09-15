@@ -409,6 +409,74 @@ SELECT COALESCE(
   )
 ) AS label;
 
+-- name: BatchGetRowLabels :many
+WITH params AS (
+  SELECT
+    sqlc.arg(org_id)::uuid     AS org_id,
+    sqlc.arg(table_id)::bigint AS table_id,
+    sqlc.arg(ids)::jsonb       AS ids
+),
+input AS (
+  SELECT (jsonb_array_elements_text((SELECT ids FROM params)))::uuid AS row_id
+),
+label_col AS (
+  SELECT c.id
+  FROM app.columns c
+  WHERE c.table_id = (SELECT table_id FROM params)
+    AND c.type IN ('text','enum')
+  ORDER BY 
+    CASE WHEN lower(c.name) = 'title' THEN 0 ELSE 1 END,
+    CASE WHEN c.is_indexed THEN 0 ELSE 1 END,
+    c.id
+  LIMIT 1
+),
+rows AS (
+  SELECT r.id AS row_id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id
+  JOIN input i ON i.row_id = r.id
+  WHERE r.table_id = (SELECT table_id FROM params)
+    AND t.org_id = (SELECT org_id FROM params)
+)
+SELECT 
+  rows.row_id,
+  COALESCE(vt.value, ve.value) AS label
+FROM rows
+LEFT JOIN app.values_text vt ON vt.row_id = rows.row_id AND vt.column_id = (SELECT id FROM label_col)
+LEFT JOIN app.values_enum ve ON ve.row_id = rows.row_id AND ve.column_id = (SELECT id FROM label_col);
+
+-- name: BatchGetRowLabelsAuto :many
+WITH params AS (
+  SELECT
+    sqlc.arg(org_id)::uuid AS org_id,
+    sqlc.arg(ids)::jsonb   AS ids
+),
+input AS (
+  SELECT (jsonb_array_elements_text((SELECT ids FROM params)))::uuid AS row_id
+),
+rows AS (
+  SELECT r.id AS row_id, r.table_id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id AND t.org_id = (SELECT org_id FROM params)
+  JOIN input i ON i.row_id = r.id
+),
+label_col AS (
+  SELECT DISTINCT ON (c.table_id) c.table_id, c.id AS label_col_id
+  FROM app.columns c
+  WHERE c.type IN ('text','enum')
+  ORDER BY c.table_id,
+    (lower(c.name) = 'title') DESC,
+    c.is_indexed DESC,
+    c.id
+)
+SELECT 
+  rows.row_id,
+  COALESCE(vt.value, ve.value) AS label
+FROM rows
+LEFT JOIN label_col lc ON lc.table_id = rows.table_id
+LEFT JOIN app.values_text vt ON vt.row_id = rows.row_id AND vt.column_id = lc.label_col_id
+LEFT JOIN app.values_enum ve ON ve.row_id = rows.row_id AND ve.column_id = lc.label_col_id;
+
 -- name: DeleteUserTableRow :one
 WITH params AS (
   SELECT

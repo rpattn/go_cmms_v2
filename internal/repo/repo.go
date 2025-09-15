@@ -63,6 +63,10 @@ type Repo interface {
     GetRowLabel(ctx context.Context, orgID uuid.UUID, tableID int64, rowID uuid.UUID) (string, error)
     // Resolve a human label for a row id by inspecting its table (org-scoped)
     GetRowLabelAuto(ctx context.Context, orgID uuid.UUID, rowID uuid.UUID) (string, error)
+    // Batch resolve labels for known reference table
+    BatchGetRowLabels(ctx context.Context, orgID uuid.UUID, tableID int64, rowIDs []uuid.UUID) (map[uuid.UUID]string, error)
+    // Batch resolve labels for mixed tables
+    BatchGetRowLabelsAuto(ctx context.Context, orgID uuid.UUID, rowIDs []uuid.UUID) (map[uuid.UUID]string, error)
 
 	// Columns management
 	AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error)

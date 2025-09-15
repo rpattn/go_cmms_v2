@@ -145,6 +145,137 @@ func (q *Queries) AddUserTableColumn(ctx context.Context, arg AddUserTableColumn
 	return i, err
 }
 
+const batchGetRowLabels = `-- name: BatchGetRowLabels :many
+WITH params AS (
+  SELECT
+    $1::uuid     AS org_id,
+    $2::bigint AS table_id,
+    $3::jsonb       AS ids
+),
+input AS (
+  SELECT (jsonb_array_elements_text((SELECT ids FROM params)))::uuid AS row_id
+),
+label_col AS (
+  SELECT c.id
+  FROM app.columns c
+  WHERE c.table_id = (SELECT table_id FROM params)
+    AND c.type IN ('text','enum')
+  ORDER BY 
+    CASE WHEN lower(c.name) = 'title' THEN 0 ELSE 1 END,
+    CASE WHEN c.is_indexed THEN 0 ELSE 1 END,
+    c.id
+  LIMIT 1
+),
+rows AS (
+  SELECT r.id AS row_id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id
+  JOIN input i ON i.row_id = r.id
+  WHERE r.table_id = (SELECT table_id FROM params)
+    AND t.org_id = (SELECT org_id FROM params)
+)
+SELECT 
+  rows.row_id,
+  COALESCE(vt.value, ve.value) AS label
+FROM rows
+LEFT JOIN app.values_text vt ON vt.row_id = rows.row_id AND vt.column_id = (SELECT id FROM label_col)
+LEFT JOIN app.values_enum ve ON ve.row_id = rows.row_id AND ve.column_id = (SELECT id FROM label_col)
+`
+
+type BatchGetRowLabelsParams struct {
+	OrgID   pgtype.UUID `db:"org_id" json:"org_id"`
+	TableID int64       `db:"table_id" json:"table_id"`
+	Ids     []byte      `db:"ids" json:"ids"`
+}
+
+type BatchGetRowLabelsRow struct {
+	RowID pgtype.UUID `db:"row_id" json:"row_id"`
+	Label pgtype.Text `db:"label" json:"label"`
+}
+
+func (q *Queries) BatchGetRowLabels(ctx context.Context, arg BatchGetRowLabelsParams) ([]BatchGetRowLabelsRow, error) {
+	rows, err := q.db.Query(ctx, batchGetRowLabels, arg.OrgID, arg.TableID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BatchGetRowLabelsRow
+	for rows.Next() {
+		var i BatchGetRowLabelsRow
+		if err := rows.Scan(&i.RowID, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const batchGetRowLabelsAuto = `-- name: BatchGetRowLabelsAuto :many
+WITH params AS (
+  SELECT
+    $1::uuid AS org_id,
+    $2::jsonb   AS ids
+),
+input AS (
+  SELECT (jsonb_array_elements_text((SELECT ids FROM params)))::uuid AS row_id
+),
+rows AS (
+  SELECT r.id AS row_id, r.table_id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id AND t.org_id = (SELECT org_id FROM params)
+  JOIN input i ON i.row_id = r.id
+),
+label_col AS (
+  SELECT DISTINCT ON (c.table_id) c.table_id, c.id AS label_col_id
+  FROM app.columns c
+  WHERE c.type IN ('text','enum')
+  ORDER BY c.table_id,
+    (lower(c.name) = 'title') DESC,
+    c.is_indexed DESC,
+    c.id
+)
+SELECT 
+  rows.row_id,
+  COALESCE(vt.value, ve.value) AS label
+FROM rows
+LEFT JOIN label_col lc ON lc.table_id = rows.table_id
+LEFT JOIN app.values_text vt ON vt.row_id = rows.row_id AND vt.column_id = lc.label_col_id
+LEFT JOIN app.values_enum ve ON ve.row_id = rows.row_id AND ve.column_id = lc.label_col_id
+`
+
+type BatchGetRowLabelsAutoParams struct {
+	OrgID pgtype.UUID `db:"org_id" json:"org_id"`
+	Ids   []byte      `db:"ids" json:"ids"`
+}
+
+type BatchGetRowLabelsAutoRow struct {
+	RowID pgtype.UUID `db:"row_id" json:"row_id"`
+	Label pgtype.Text `db:"label" json:"label"`
+}
+
+func (q *Queries) BatchGetRowLabelsAuto(ctx context.Context, arg BatchGetRowLabelsAutoParams) ([]BatchGetRowLabelsAutoRow, error) {
+	rows, err := q.db.Query(ctx, batchGetRowLabelsAuto, arg.OrgID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BatchGetRowLabelsAutoRow
+	for rows.Next() {
+		var i BatchGetRowLabelsAutoRow
+		if err := rows.Scan(&i.RowID, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createUserTable = `-- name: CreateUserTable :one
 WITH s AS (
   SELECT trim(both '-' from regexp_replace(lower($1::text), '[^a-z0-9]+', '-', 'g')) AS slug

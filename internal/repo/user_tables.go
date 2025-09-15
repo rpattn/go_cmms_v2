@@ -422,3 +422,37 @@ func (p *pgRepo) GetRowLabelAuto(ctx context.Context, orgID uuid.UUID, rowID uui
     }
     return toString(lbl), nil
 }
+
+func (p *pgRepo) BatchGetRowLabels(ctx context.Context, orgID uuid.UUID, tableID int64, rowIDs []uuid.UUID) (map[uuid.UUID]string, error) {
+    // Build JSON array of UUID strings
+    arr := make([]string, 0, len(rowIDs))
+    for _, id := range rowIDs { arr = append(arr, id.String()) }
+    b, _ := json.Marshal(arr)
+    rows, err := p.q.BatchGetRowLabels(ctx, db.BatchGetRowLabelsParams{
+        OrgID:   fromUUID(orgID),
+        TableID: tableID,
+        Ids:     b,
+    })
+    if err != nil { return nil, err }
+    out := make(map[uuid.UUID]string, len(rows))
+    for _, r := range rows {
+        out[toUUID(r.RowID)] = toString(r.Label)
+    }
+    return out, nil
+}
+
+func (p *pgRepo) BatchGetRowLabelsAuto(ctx context.Context, orgID uuid.UUID, rowIDs []uuid.UUID) (map[uuid.UUID]string, error) {
+    arr := make([]string, 0, len(rowIDs))
+    for _, id := range rowIDs { arr = append(arr, id.String()) }
+    b, _ := json.Marshal(arr)
+    rows, err := p.q.BatchGetRowLabelsAuto(ctx, db.BatchGetRowLabelsAutoParams{
+        OrgID: fromUUID(orgID),
+        Ids:   b,
+    })
+    if err != nil { return nil, err }
+    out := make(map[uuid.UUID]string, len(rows))
+    for _, r := range rows {
+        out[toUUID(r.RowID)] = toString(r.Label)
+    }
+    return out, nil
+}

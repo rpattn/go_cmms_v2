@@ -64,15 +64,47 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
     }
     // Build list of uuid columns (both reference and non-reference)
     type uuidCol struct{ Name string; TableID *int64 }
-    refCols := make([]uuidCol, 0, len(schema))
+    uuidCols := make([]uuidCol, 0, len(schema))
     for _, c := range schema {
         if c.Type == "uuid" {
-            refCols = append(refCols, uuidCol{Name: c.Name, TableID: c.ReferenceTableID})
+            uuidCols = append(uuidCols, uuidCol{Name: c.Name, TableID: c.ReferenceTableID})
         }
     }
     // Unpack data maps, resolve uuid references, and promote total_count to top-level
     contents := make([]map[string]any, 0, len(rows))
     var totalCount int64
+    // First pass: collect uuids to resolve in batch
+    byTable := make(map[int64][]uuid.UUID)
+    var autoIDs []uuid.UUID
+    for _, row := range rows {
+        if row.Data == nil { continue }
+        for _, rc := range uuidCols {
+            raw, ok := row.Data[rc.Name]
+            if !ok { continue }
+            s, ok := raw.(string)
+            if !ok || s == "" { continue }
+            if uid, err := uuid.Parse(s); err == nil {
+                if rc.TableID != nil {
+                    byTable[*rc.TableID] = append(byTable[*rc.TableID], uid)
+                } else {
+                    autoIDs = append(autoIDs, uid)
+                }
+            }
+        }
+    }
+    // Batch lookups
+    labelCache := make(map[uuid.UUID]string)
+    for tbl, ids := range byTable {
+        if len(ids) == 0 { continue }
+        m, _ := h.repo.BatchGetRowLabels(r.Context(), orgID, tbl, ids)
+        for k, v := range m { labelCache[k] = v }
+    }
+    if len(autoIDs) > 0 {
+        m, _ := h.repo.BatchGetRowLabelsAuto(r.Context(), orgID, autoIDs)
+        for k, v := range m { labelCache[k] = v }
+    }
+
+    // Second pass: build content, replacing uuid fields with {id,label?}
     for i, row := range rows {
         if i == 0 { totalCount = row.TotalCount }
         if row.Data == nil {
@@ -82,25 +114,17 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
         // Copy map to avoid unexpected aliasing
         m := make(map[string]any, len(row.Data))
         for k, v := range row.Data { m[k] = v }
-        // Resolve uuid columns to {id,label?}
-        for _, rc := range refCols {
-            if raw, ok := m[rc.Name]; ok && rc.TableID != nil {
-                if s, ok := raw.(string); ok && s != "" {
-                    if uid, err := uuid.Parse(s); err == nil {
-                        label, _ := h.repo.GetRowLabel(r.Context(), orgID, *rc.TableID, uid)
-                        m[rc.Name] = map[string]any{"id": uid.String(), "label": label}
-                    }
-                }
-            } else if raw, ok := m[rc.Name]; ok && rc.TableID == nil { // non-reference or unknown reference
-                if s, ok := raw.(string); ok && s != "" {
-                    if uid, err := uuid.Parse(s); err == nil {
-                        // Try to auto-resolve label by detecting the row's table; if none, wrap id only
-                        if label, err := h.repo.GetRowLabelAuto(r.Context(), orgID, uid); err == nil && label != "" {
-                            m[rc.Name] = map[string]any{"id": uid.String(), "label": label}
-                        } else {
-                            m[rc.Name] = map[string]any{"id": uid.String()}
-                        }
-                    }
+        // Resolve uuid columns to {id,label?} using cache
+        for _, rc := range uuidCols {
+            raw, ok := m[rc.Name]
+            if !ok { continue }
+            s, ok := raw.(string)
+            if !ok || s == "" { continue }
+            if uid, err := uuid.Parse(s); err == nil {
+                if lbl, ok := labelCache[uid]; ok && lbl != "" {
+                    m[rc.Name] = map[string]any{"id": uid.String(), "label": lbl}
+                } else {
+                    m[rc.Name] = map[string]any{"id": uid.String()}
                 }
             }
         }
