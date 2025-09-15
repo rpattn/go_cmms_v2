@@ -61,7 +61,23 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
         httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "search failed"})
         return
     }
-    httpserver.JSON(w, http.StatusOK, map[string]any{"columns": schema, "content": rows})
+    // Unpack data maps and promote total_count to top-level
+    contents := make([]map[string]any, 0, len(rows))
+    var totalCount int64
+    for i, r := range rows {
+        if i == 0 { totalCount = r.TotalCount }
+        if r.Data == nil {
+            contents = append(contents, map[string]any{})
+            continue
+        }
+        // Copy map to avoid unexpected aliasing
+        m := make(map[string]any, len(r.Data))
+        for k, v := range r.Data { m[k] = v }
+        // Optionally drop duplicate id fields if present (we're not returning row_id separately)
+        // If you want to keep a specific key, adjust here.
+        contents = append(contents, m)
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"columns": schema, "content": contents, "total_count": totalCount})
 }
 
 // Create handles POST /tables with JSON body {"name": "..."} to create a new table for the org
@@ -100,6 +116,31 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
         return
     }
     httpserver.JSON(w, http.StatusOK, map[string]any{"tables": tables})
+}
+
+// Delete handles DELETE /tables/{table} for the current org
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    table := chi.URLParam(r, "table")
+    if table == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "missing table"})
+        return
+    }
+    ut, deleted, err := h.repo.DeleteUserTable(r.Context(), orgID, table)
+    if err != nil {
+        status, msg := httpserver.PGErrorMessage(err, "delete failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
+        return
+    }
+    if !deleted {
+        httpserver.JSON(w, http.StatusNotFound, map[string]string{"error": "table not found"})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"deleted": true, "table": ut})
 }
 
 // AddColumn handles POST /tables/{table}/columns to add a column to a user-defined table
@@ -167,4 +208,30 @@ func (h *Handler) AddRow(w http.ResponseWriter, r *http.Request) {
         return
     }
     httpserver.JSON(w, http.StatusCreated, map[string]any{"row": row})
+}
+
+// RemoveColumn handles DELETE /tables/{table}/columns/{column}
+func (h *Handler) RemoveColumn(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    table := chi.URLParam(r, "table")
+    column := chi.URLParam(r, "column")
+    if table == "" || column == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "missing table or column"})
+        return
+    }
+    col, deleted, err := h.repo.RemoveUserTableColumn(r.Context(), orgID, table, column)
+    if err != nil {
+        status, msg := httpserver.PGErrorMessage(err, "delete failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
+        return
+    }
+    if !deleted {
+        httpserver.JSON(w, http.StatusNotFound, map[string]string{"error": "column not found"})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"deleted": true, "column": col})
 }

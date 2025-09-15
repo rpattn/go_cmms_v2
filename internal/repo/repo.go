@@ -45,9 +45,11 @@ type Repo interface {
 	// User-defined tables (org-scoped)
 	CreateUserTable(ctx context.Context, orgID uuid.UUID, name string) (models.UserTable, bool, error)
 	ListUserTables(ctx context.Context, orgID uuid.UUID) ([]models.UserTable, error)
+	DeleteUserTable(ctx context.Context, orgID uuid.UUID, table string) (models.UserTable, bool, error)
 
 	// Columns management
 	AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error)
+	RemoveUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, columnName string) (models.TableColumn, bool, error)
 
 	// Rows management
 	InsertUserTableRow(ctx context.Context, orgID uuid.UUID, table string, values []byte) (models.TableRow, error)

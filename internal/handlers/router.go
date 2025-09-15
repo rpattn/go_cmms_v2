@@ -28,7 +28,9 @@ func RegisterRoutes(mux *chi.Mux, r repo.Repo) {
         // Create and list org-scoped user tables
         sr.Get("/", t.List)
         sr.Post("/", t.Create)
+        sr.Delete("/{table}", t.Delete)
         sr.Post("/{table}/columns", t.AddColumn)
+        sr.Delete("/{table}/columns/{column}", t.RemoveColumn)
         sr.Post("/{table}/rows", t.AddRow)
         sr.Post("/{table}/search", t.Search)
     })

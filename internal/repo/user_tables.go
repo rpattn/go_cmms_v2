@@ -129,6 +129,30 @@ func (p *pgRepo) ListUserTables(ctx context.Context, orgID uuid.UUID) ([]models.
     return out, nil
 }
 
+func (p *pgRepo) DeleteUserTable(ctx context.Context, orgID uuid.UUID, table string) (models.UserTable, bool, error) {
+    slog.DebugContext(ctx, "DeleteUserTable", "org_id", orgID.String(), "table", table)
+    row, err := p.q.DeleteUserTable(ctx, db.DeleteUserTableParams{
+        OrgID:     fromUUID(orgID),
+        TableName: table,
+    })
+    if err != nil {
+        slog.ErrorContext(ctx, "DeleteUserTable failed", "err", err)
+        return models.UserTable{}, false, err
+    }
+    if !row.Deleted {
+        return models.UserTable{}, false, nil
+    }
+    created := time.Time{}
+    if row.CreatedAt.Valid { created = row.CreatedAt.Time }
+    ut := models.UserTable{
+        ID:        row.ID,
+        Name:      row.Name,
+        Slug:      row.Slug,
+        CreatedAt: created,
+    }
+    return ut, true, nil
+}
+
 func (p *pgRepo) AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error) {
     slog.DebugContext(ctx, "AddUserTableColumn", "org_id", orgID.String(), "table", table, "name", input.Name)
     // Marshal enum values to JSON for the query
@@ -180,6 +204,46 @@ func (p *pgRepo) AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table 
         RequireDifferentTable: row.RequireDifferentTable,
     }
     return col, row.Created, nil
+}
+
+func (p *pgRepo) RemoveUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, columnName string) (models.TableColumn, bool, error) {
+    slog.DebugContext(ctx, "RemoveUserTableColumn", "org_id", orgID.String(), "table", table, "column", columnName)
+    row, err := p.q.RemoveUserTableColumn(ctx, db.RemoveUserTableColumnParams{
+        OrgID:      fromUUID(orgID),
+        TableName:  table,
+        ColumnName: columnName,
+    })
+    if err != nil {
+        slog.ErrorContext(ctx, "RemoveUserTableColumn failed", "err", err)
+        return models.TableColumn{}, false, err
+    }
+    // If nothing was deleted, treat as not found
+    if !row.Deleted {
+        return models.TableColumn{}, false, nil
+    }
+    var enums []string
+    if len(row.EnumValues) > 0 {
+        if err := json.Unmarshal(row.EnumValues, &enums); err != nil {
+            slog.WarnContext(ctx, "RemoveUserTableColumn: bad enum_values JSON from DB", "err", err)
+        }
+    }
+    var refID *int64
+    if row.ReferenceTableID.Valid {
+        v := row.ReferenceTableID.Int64
+        refID = &v
+    }
+    col := models.TableColumn{
+        ID:                    row.ID,
+        Name:                  row.Name,
+        Type:                  row.Type,
+        Required:              row.IsRequired,
+        Indexed:               row.IsIndexed,
+        EnumValues:            enums,
+        IsReference:           row.IsReference,
+        ReferenceTableID:      refID,
+        RequireDifferentTable: row.RequireDifferentTable,
+    }
+    return col, row.Deleted, nil
 }
 
 func (p *pgRepo) InsertUserTableRow(ctx context.Context, orgID uuid.UUID, table string, values []byte) (models.TableRow, error) {

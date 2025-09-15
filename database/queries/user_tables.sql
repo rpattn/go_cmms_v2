@@ -28,45 +28,49 @@ ff AS (
 filtered AS (
   SELECT 
     b.id,
+    b.created_at,
     app.row_to_json(b.id) as data,
     COUNT(*) OVER() AS total_count
   FROM app.rows b
   WHERE b.table_id = (SELECT id FROM table_id)
-  AND EXISTS (
-    SELECT 1
-    FROM ff
-    LEFT JOIN app.columns c ON c.table_id = (SELECT id FROM table_id)
-      AND lower(c.name) = lower(f->>'field')
-    WHERE 
-      CASE
-        WHEN c.type = 'text' THEN EXISTS (
-          SELECT 1 FROM app.values_text vt
-          WHERE vt.row_id = b.id AND vt.column_id = c.id AND (
-            CASE COALESCE(f->>'operation','eq')
-              WHEN 'eq' THEN vt.value = (f->>'value')
-              WHEN 'cn' THEN vt.value ILIKE '%' || (f->>'value') || '%'
-              WHEN 'in' THEN vt.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
-              ELSE TRUE
-            END
+  AND (
+    NOT EXISTS (SELECT 1 FROM ff) OR
+    EXISTS (
+      SELECT 1
+      FROM ff
+      LEFT JOIN app.columns c ON c.table_id = (SELECT id FROM table_id)
+        AND lower(c.name) = lower(f->>'field')
+      WHERE 
+        CASE
+          WHEN c.type = 'text' THEN EXISTS (
+            SELECT 1 FROM app.values_text vt
+            WHERE vt.row_id = b.id AND vt.column_id = c.id AND (
+              CASE COALESCE(f->>'operation','eq')
+                WHEN 'eq' THEN vt.value = (f->>'value')
+                WHEN 'cn' THEN vt.value ILIKE '%' || (f->>'value') || '%'
+                WHEN 'in' THEN vt.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
+                ELSE TRUE
+              END
+            )
           )
-        )
-        WHEN c.type = 'enum' THEN EXISTS (
-          SELECT 1 FROM app.values_enum ve
-          WHERE ve.row_id = b.id AND ve.column_id = c.id AND (
-            CASE COALESCE(f->>'operation','eq')
-              WHEN 'eq' THEN ve.value = (f->>'value')
-              WHEN 'in' THEN ve.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
-              ELSE TRUE
-            END
+          WHEN c.type = 'enum' THEN EXISTS (
+            SELECT 1 FROM app.values_enum ve
+            WHERE ve.row_id = b.id AND ve.column_id = c.id AND (
+              CASE COALESCE(f->>'operation','eq')
+                WHEN 'eq' THEN ve.value = (f->>'value')
+                WHEN 'in' THEN ve.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
+                ELSE TRUE
+              END
+            )
           )
-        )
-        WHEN c.type = 'bool' THEN EXISTS (
-          SELECT 1 FROM app.values_bool vb
-          WHERE vb.row_id = b.id AND vb.column_id = c.id 
-          AND vb.value IS NOT DISTINCT FROM ((f->>'value')::boolean)
-        )
-        ELSE TRUE
-      END
+          WHEN c.type = 'bool' THEN EXISTS (
+            SELECT 1 FROM app.values_bool vb
+            WHERE vb.row_id = b.id AND vb.column_id = c.id 
+            AND vb.value IS NOT DISTINCT FROM ((f->>'value')::boolean)
+          )
+          ELSE TRUE
+        END
+    )
   )
 )
 SELECT 
@@ -74,7 +78,7 @@ SELECT
   f.data,
   f.total_count
 FROM filtered f
-ORDER BY f.id DESC
+ORDER BY f.created_at DESC
 LIMIT (SELECT page_size FROM page)
 OFFSET (SELECT page_size * page_num FROM page);
 
@@ -228,3 +232,73 @@ ins AS (
 SELECT i.row_id,
        app.row_to_json(i.row_id) AS data
 FROM ins i;
+
+-- name: DeleteUserTable :one
+WITH params AS (
+  SELECT
+    sqlc.arg(org_id)::uuid     AS org_id,
+    sqlc.arg(table_name)::text AS table_name
+),
+target AS (
+  SELECT id, name, slug, created_at
+  FROM app.tables t
+  WHERE t.org_id = (SELECT org_id FROM params)
+    AND (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+  LIMIT 1
+),
+del AS (
+  DELETE FROM app.tables t
+  WHERE t.id IN (SELECT id FROM target)
+    AND t.org_id = (SELECT org_id FROM params)
+  RETURNING id
+)
+SELECT (SELECT COUNT(*) > 0 FROM del) AS deleted,
+       (SELECT id FROM target) AS id,
+       (SELECT name FROM target) AS name,
+       (SELECT slug FROM target) AS slug,
+       (SELECT created_at FROM target) AS created_at;
+
+-- name: RemoveUserTableColumn :one
+WITH params AS (
+  SELECT
+    sqlc.arg(org_id)::uuid     AS org_id,
+    sqlc.arg(table_name)::text AS table_name,
+    sqlc.arg(column_name)::text AS column_name
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+  ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+  LIMIT 1
+),
+cname AS (
+  SELECT trim(both '_' from regexp_replace(lower((SELECT column_name FROM params)), '[^a-z0-9_]+', '_', 'g')) AS name
+),
+target AS (
+  SELECT c.id, c.table_id, c.name, c.type::text AS type, c.is_required, c.is_indexed,
+         c.enum_values, c.is_reference, c.reference_table_id, c.require_different_table
+  FROM app.columns c
+  WHERE c.table_id = (SELECT id FROM table_id) AND c.name = (SELECT name FROM cname)
+  LIMIT 1
+),
+del AS (
+  DELETE FROM app.columns c
+  WHERE c.id IN (SELECT id FROM target)
+  RETURNING c.id
+)
+SELECT 
+  (SELECT COUNT(*) > 0 FROM del) AS deleted,
+  (SELECT id FROM target) AS id,
+  (SELECT table_id FROM target) AS table_id,
+  (SELECT name FROM target) AS name,
+  (SELECT type FROM target) AS type,
+  (SELECT is_required FROM target) AS is_required,
+  (SELECT is_indexed FROM target) AS is_indexed,
+  to_jsonb((SELECT enum_values FROM target)) AS enum_values,
+  (SELECT is_reference FROM target) AS is_reference,
+  (SELECT reference_table_id FROM target) AS reference_table_id,
+  (SELECT require_different_table FROM target) AS require_different_table;
