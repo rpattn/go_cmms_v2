@@ -82,6 +82,7 @@ type AppTable struct {
 	Name      string             `db:"name" json:"name"`
 	Slug      string             `db:"slug" json:"slug"`
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	OrgID     pgtype.UUID        `db:"org_id" json:"org_id"`
 }
 
 type AppValuesBool struct {

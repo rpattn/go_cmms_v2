@@ -2,12 +2,19 @@
 WITH params AS (
   SELECT
     sqlc.arg(table_name)::text AS table_name,
-    sqlc.arg(payload)::jsonb   AS p
+    sqlc.arg(payload)::jsonb   AS p,
+    sqlc.arg(org_id)::uuid     AS org_id
 ),
 table_id AS (
   SELECT COALESCE(
-    (SELECT id FROM app.tables WHERE slug = lower((SELECT table_name FROM params))),
-    (SELECT id FROM app.tables WHERE lower(name) = lower((SELECT table_name FROM params)))
+    (SELECT id FROM app.tables 
+       WHERE (org_id = (SELECT org_id FROM params) OR org_id IS NULL)
+         AND slug = lower((SELECT table_name FROM params))
+    ),
+    (SELECT id FROM app.tables 
+       WHERE (org_id = (SELECT org_id FROM params) OR org_id IS NULL)
+         AND lower(name) = lower((SELECT table_name FROM params))
+    )
   ) AS id
 ),
 page AS (

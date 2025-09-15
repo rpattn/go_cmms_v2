@@ -1,21 +1,23 @@
 package repo
 
 import (
-	"context"
-	"encoding/json"
-	"log/slog"
+    "context"
+    "encoding/json"
+    "log/slog"
 
-	db "yourapp/internal/db/gen"
-	"yourapp/internal/models"
+    "github.com/google/uuid"
+    db "yourapp/internal/db/gen"
+    "yourapp/internal/models"
 )
 
 // SearchUserTable exposes the generic search over user-defined EAV tables.
-func (p *pgRepo) SearchUserTable(ctx context.Context, table string, payload []byte) ([]models.TableRow, error) {
-	slog.DebugContext(ctx, "SearchUserTable", "table", table)
-	params := db.SearchUserTableParams{
-		TableName: table,
-		Payload:   payload,
-	}
+func (p *pgRepo) SearchUserTable(ctx context.Context, org_id uuid.UUID, table string, payload []byte) ([]models.TableRow, error) {
+    slog.DebugContext(ctx, "SearchUserTable", "org_id", org_id.String(), "table", table)
+    params := db.SearchUserTableParams{
+        TableName: table,
+        Payload:   payload,
+        OrgID:     fromUUID(org_id),
+    }
 	rows, err := p.q.SearchUserTable(ctx, params)
 	if err != nil {
 		slog.ErrorContext(ctx, "SearchUserTable failed", "err", err)

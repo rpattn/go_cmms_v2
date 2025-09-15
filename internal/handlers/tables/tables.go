@@ -1,14 +1,14 @@
 package tables
 
 import (
-	"encoding/json"
-	"net/http"
+    "encoding/json"
+    "net/http"
 
-	"github.com/go-chi/chi/v5"
+    "github.com/go-chi/chi/v5"
 
-	"yourapp/internal/auth"
-	httpserver "yourapp/internal/http"
-	"yourapp/internal/repo"
+    "yourapp/internal/auth"
+    httpserver "yourapp/internal/http"
+    "yourapp/internal/repo"
 )
 
 type Handler struct {
@@ -20,10 +20,11 @@ func New(repo repo.Repo) *Handler { return &Handler{repo: repo} }
 // Search handles POST /tables/{table}/search with JSON payload containing page/filterFields
 func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	// Require org context if needed later; currently generic search is not org-scoped in DB
-	if _, ok := auth.OrgFromContext(r.Context()); !ok {
-		httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
-	}
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
 
 	table := chi.URLParam(r, "table")
 	if table == "" {
@@ -48,7 +49,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.repo.SearchUserTable(r.Context(), table, payload)
+    rows, err := h.repo.SearchUserTable(r.Context(), orgID, table, payload)
 	if err != nil {
 		httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "search failed"})
 		return

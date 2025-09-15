@@ -15,12 +15,19 @@ const searchUserTable = `-- name: SearchUserTable :many
 WITH params AS (
   SELECT
     $1::text AS table_name,
-    $2::jsonb   AS p
+    $2::jsonb   AS p,
+    $3::uuid     AS org_id
 ),
 table_id AS (
   SELECT COALESCE(
-    (SELECT id FROM app.tables WHERE slug = lower((SELECT table_name FROM params))),
-    (SELECT id FROM app.tables WHERE lower(name) = lower((SELECT table_name FROM params)))
+    (SELECT id FROM app.tables 
+       WHERE (org_id = (SELECT org_id FROM params) OR org_id IS NULL)
+         AND slug = lower((SELECT table_name FROM params))
+    ),
+    (SELECT id FROM app.tables 
+       WHERE (org_id = (SELECT org_id FROM params) OR org_id IS NULL)
+         AND lower(name) = lower((SELECT table_name FROM params))
+    )
   ) AS id
 ),
 page AS (
@@ -89,8 +96,9 @@ OFFSET (SELECT page_size * page_num FROM page)
 `
 
 type SearchUserTableParams struct {
-	TableName string `db:"table_name" json:"table_name"`
-	Payload   []byte `db:"payload" json:"payload"`
+	TableName string      `db:"table_name" json:"table_name"`
+	Payload   []byte      `db:"payload" json:"payload"`
+	OrgID     pgtype.UUID `db:"org_id" json:"org_id"`
 }
 
 type SearchUserTableRow struct {
@@ -100,7 +108,7 @@ type SearchUserTableRow struct {
 }
 
 func (q *Queries) SearchUserTable(ctx context.Context, arg SearchUserTableParams) ([]SearchUserTableRow, error) {
-	rows, err := q.db.Query(ctx, searchUserTable, arg.TableName, arg.Payload)
+	rows, err := q.db.Query(ctx, searchUserTable, arg.TableName, arg.Payload, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}
