@@ -47,6 +47,9 @@ type Repo interface {
 	ListUserTables(ctx context.Context, orgID uuid.UUID) ([]models.UserTable, error)
 	DeleteUserTable(ctx context.Context, orgID uuid.UUID, table string) (models.UserTable, bool, error)
 
+	// Row lookup by UUID
+	GetRowData(ctx context.Context, rowID uuid.UUID) (map[string]any, bool, error)
+
 	// Columns management
 	AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error)
 	RemoveUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, columnName string) (models.TableColumn, bool, error)

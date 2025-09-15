@@ -242,6 +242,26 @@ func (q *Queries) DeleteUserTable(ctx context.Context, arg DeleteUserTableParams
 	return i, err
 }
 
+const getRowData = `-- name: GetRowData :one
+WITH r AS (
+  SELECT 1 FROM app.rows WHERE id = $1::uuid
+)
+SELECT EXISTS(SELECT 1 FROM r) AS found,
+       app.row_to_json($1::uuid) AS data
+`
+
+type GetRowDataRow struct {
+	Found bool   `db:"found" json:"found"`
+	Data  []byte `db:"data" json:"data"`
+}
+
+func (q *Queries) GetRowData(ctx context.Context, rowID pgtype.UUID) (GetRowDataRow, error) {
+	row := q.db.QueryRow(ctx, getRowData, rowID)
+	var i GetRowDataRow
+	err := row.Scan(&i.Found, &i.Data)
+	return i, err
+}
+
 const getUserTableSchema = `-- name: GetUserTableSchema :many
 WITH params AS (
   SELECT

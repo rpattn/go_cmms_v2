@@ -259,6 +259,13 @@ SELECT (SELECT COUNT(*) > 0 FROM del) AS deleted,
        (SELECT slug FROM target) AS slug,
        (SELECT created_at FROM target) AS created_at;
 
+-- name: GetRowData :one
+WITH r AS (
+  SELECT 1 FROM app.rows WHERE id = sqlc.arg(row_id)::uuid
+)
+SELECT EXISTS(SELECT 1 FROM r) AS found,
+       app.row_to_json(sqlc.arg(row_id)::uuid) AS data;
+
 -- name: RemoveUserTableColumn :one
 WITH params AS (
   SELECT

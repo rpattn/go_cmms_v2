@@ -5,6 +5,7 @@ import (
     "net/http"
 
     "github.com/go-chi/chi/v5"
+    "github.com/google/uuid"
 
     "yourapp/internal/auth"
     httpserver "yourapp/internal/http"
@@ -208,6 +209,38 @@ func (h *Handler) AddRow(w http.ResponseWriter, r *http.Request) {
         return
     }
     httpserver.JSON(w, http.StatusCreated, map[string]any{"row": row})
+}
+
+// LookupRow handles POST /tables/rows/lookup with JSON body {"id":"<uuid>"}
+// Returns the EAV-composed JSON for that row id using app.row_to_json.
+func (h *Handler) LookupRow(w http.ResponseWriter, r *http.Request) {
+    if _, ok := auth.OrgFromContext(r.Context()); !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    defer r.Body.Close()
+    var body struct{ ID string `json:"id"` }
+    dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+    if err := dec.Decode(&body); err != nil || body.ID == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON or missing id"})
+        return
+    }
+    uid, err := uuid.Parse(body.ID)
+    if err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid UUID"})
+        return
+    }
+    data, found, err := h.repo.GetRowData(r.Context(), uid)
+    if err != nil {
+        status, msg := httpserver.PGErrorMessage(err, "lookup failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
+        return
+    }
+    if !found {
+        httpserver.JSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"data": data})
 }
 
 // RemoveColumn handles DELETE /tables/{table}/columns/{column}
