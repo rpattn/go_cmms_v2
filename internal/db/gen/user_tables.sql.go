@@ -322,6 +322,102 @@ func (q *Queries) GetRowData(ctx context.Context, arg GetRowDataParams) (GetRowD
 	return i, err
 }
 
+const getRowLabel = `-- name: GetRowLabel :one
+WITH label_col AS (
+  SELECT c.id, c.name, c.type::text AS type
+  FROM app.columns c
+  WHERE c.table_id = $2::bigint
+    AND c.type IN ('text','enum')
+  ORDER BY 
+    CASE WHEN lower(c.name) = 'title' THEN 0 ELSE 1 END,
+    CASE WHEN c.is_indexed THEN 0 ELSE 1 END,
+    c.id
+  LIMIT 1
+)
+SELECT COALESCE(
+  (
+    SELECT vt.value
+    FROM app.values_text vt
+    JOIN app.rows r ON r.id = vt.row_id
+    JOIN app.tables t ON t.id = r.table_id
+    WHERE vt.row_id = $1::uuid
+      AND vt.column_id = (SELECT id FROM label_col)
+      AND r.table_id = $2::bigint
+      AND t.org_id = $3::uuid
+  ),
+  (
+    SELECT ve.value
+    FROM app.values_enum ve
+    JOIN app.rows r ON r.id = ve.row_id
+    JOIN app.tables t ON t.id = r.table_id
+    WHERE ve.row_id = $1::uuid
+      AND ve.column_id = (SELECT id FROM label_col)
+      AND r.table_id = $2::bigint
+      AND t.org_id = $3::uuid
+  )
+) AS label
+`
+
+type GetRowLabelParams struct {
+	RowID   pgtype.UUID `db:"row_id" json:"row_id"`
+	TableID int64       `db:"table_id" json:"table_id"`
+	OrgID   pgtype.UUID `db:"org_id" json:"org_id"`
+}
+
+func (q *Queries) GetRowLabel(ctx context.Context, arg GetRowLabelParams) (interface{}, error) {
+	row := q.db.QueryRow(ctx, getRowLabel, arg.RowID, arg.TableID, arg.OrgID)
+	var label interface{}
+	err := row.Scan(&label)
+	return label, err
+}
+
+const getRowLabelAuto = `-- name: GetRowLabelAuto :one
+WITH r AS (
+  SELECT r.id, r.table_id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id
+  WHERE r.id = $1::uuid
+    AND t.org_id = $2::uuid
+),
+label_col AS (
+  SELECT c.id, c.name, c.type::text AS type
+  FROM app.columns c
+  WHERE c.table_id = (SELECT table_id FROM r)
+    AND c.type IN ('text','enum')
+  ORDER BY 
+    CASE WHEN lower(c.name) = 'title' THEN 0 ELSE 1 END,
+    CASE WHEN c.is_indexed THEN 0 ELSE 1 END,
+    c.id
+  LIMIT 1
+)
+SELECT COALESCE(
+  (
+    SELECT vt.value
+    FROM app.values_text vt
+    WHERE vt.row_id = (SELECT id FROM r)
+      AND vt.column_id = (SELECT id FROM label_col)
+  ),
+  (
+    SELECT ve.value
+    FROM app.values_enum ve
+    WHERE ve.row_id = (SELECT id FROM r)
+      AND ve.column_id = (SELECT id FROM label_col)
+  )
+) AS label
+`
+
+type GetRowLabelAutoParams struct {
+	RowID pgtype.UUID `db:"row_id" json:"row_id"`
+	OrgID pgtype.UUID `db:"org_id" json:"org_id"`
+}
+
+func (q *Queries) GetRowLabelAuto(ctx context.Context, arg GetRowLabelAutoParams) (interface{}, error) {
+	row := q.db.QueryRow(ctx, getRowLabelAuto, arg.RowID, arg.OrgID)
+	var label interface{}
+	err := row.Scan(&label)
+	return label, err
+}
+
 const getUserTableSchema = `-- name: GetUserTableSchema :many
 WITH params AS (
   SELECT

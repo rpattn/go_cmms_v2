@@ -59,6 +59,11 @@ type Repo interface {
     // Delete a row by UUID from a table within the org
     DeleteUserTableRow(ctx context.Context, orgID uuid.UUID, table string, rowID uuid.UUID) (bool, error)
 
+    // Resolve a human label for a referenced row id in a given table
+    GetRowLabel(ctx context.Context, orgID uuid.UUID, tableID int64, rowID uuid.UUID) (string, error)
+    // Resolve a human label for a row id by inspecting its table (org-scoped)
+    GetRowLabelAuto(ctx context.Context, orgID uuid.UUID, rowID uuid.UUID) (string, error)
+
 	// Columns management
 	AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error)
 	RemoveUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, columnName string) (models.TableColumn, bool, error)

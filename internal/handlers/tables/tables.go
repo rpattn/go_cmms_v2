@@ -62,18 +62,48 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
         httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "search failed"})
         return
     }
-    // Unpack data maps and promote total_count to top-level
+    // Build list of uuid columns (both reference and non-reference)
+    type uuidCol struct{ Name string; TableID *int64 }
+    refCols := make([]uuidCol, 0, len(schema))
+    for _, c := range schema {
+        if c.Type == "uuid" {
+            refCols = append(refCols, uuidCol{Name: c.Name, TableID: c.ReferenceTableID})
+        }
+    }
+    // Unpack data maps, resolve uuid references, and promote total_count to top-level
     contents := make([]map[string]any, 0, len(rows))
     var totalCount int64
-    for i, r := range rows {
-        if i == 0 { totalCount = r.TotalCount }
-        if r.Data == nil {
+    for i, row := range rows {
+        if i == 0 { totalCount = row.TotalCount }
+        if row.Data == nil {
             contents = append(contents, map[string]any{})
             continue
         }
         // Copy map to avoid unexpected aliasing
-        m := make(map[string]any, len(r.Data))
-        for k, v := range r.Data { m[k] = v }
+        m := make(map[string]any, len(row.Data))
+        for k, v := range row.Data { m[k] = v }
+        // Resolve uuid columns to {id,label?}
+        for _, rc := range refCols {
+            if raw, ok := m[rc.Name]; ok && rc.TableID != nil {
+                if s, ok := raw.(string); ok && s != "" {
+                    if uid, err := uuid.Parse(s); err == nil {
+                        label, _ := h.repo.GetRowLabel(r.Context(), orgID, *rc.TableID, uid)
+                        m[rc.Name] = map[string]any{"id": uid.String(), "label": label}
+                    }
+                }
+            } else if raw, ok := m[rc.Name]; ok && rc.TableID == nil { // non-reference or unknown reference
+                if s, ok := raw.(string); ok && s != "" {
+                    if uid, err := uuid.Parse(s); err == nil {
+                        // Try to auto-resolve label by detecting the row's table; if none, wrap id only
+                        if label, err := h.repo.GetRowLabelAuto(r.Context(), orgID, uid); err == nil && label != "" {
+                            m[rc.Name] = map[string]any{"id": uid.String(), "label": label}
+                        } else {
+                            m[rc.Name] = map[string]any{"id": uid.String()}
+                        }
+                    }
+                }
+            }
+        }
         // Optionally drop duplicate id fields if present (we're not returning row_id separately)
         // If you want to keep a specific key, adjust here.
         contents = append(contents, m)

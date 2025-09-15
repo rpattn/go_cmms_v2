@@ -340,6 +340,75 @@ WHERE t.org_id = sqlc.arg(org_id)::uuid
   AND c.type IN ('text','enum')
 ORDER BY t.name ASC, c.name ASC;
 
+-- name: GetRowLabel :one
+WITH label_col AS (
+  SELECT c.id, c.name, c.type::text AS type
+  FROM app.columns c
+  WHERE c.table_id = sqlc.arg(table_id)::bigint
+    AND c.type IN ('text','enum')
+  ORDER BY 
+    CASE WHEN lower(c.name) = 'title' THEN 0 ELSE 1 END,
+    CASE WHEN c.is_indexed THEN 0 ELSE 1 END,
+    c.id
+  LIMIT 1
+)
+SELECT COALESCE(
+  (
+    SELECT vt.value
+    FROM app.values_text vt
+    JOIN app.rows r ON r.id = vt.row_id
+    JOIN app.tables t ON t.id = r.table_id
+    WHERE vt.row_id = sqlc.arg(row_id)::uuid
+      AND vt.column_id = (SELECT id FROM label_col)
+      AND r.table_id = sqlc.arg(table_id)::bigint
+      AND t.org_id = sqlc.arg(org_id)::uuid
+  ),
+  (
+    SELECT ve.value
+    FROM app.values_enum ve
+    JOIN app.rows r ON r.id = ve.row_id
+    JOIN app.tables t ON t.id = r.table_id
+    WHERE ve.row_id = sqlc.arg(row_id)::uuid
+      AND ve.column_id = (SELECT id FROM label_col)
+      AND r.table_id = sqlc.arg(table_id)::bigint
+      AND t.org_id = sqlc.arg(org_id)::uuid
+  )
+) AS label;
+
+-- name: GetRowLabelAuto :one
+WITH r AS (
+  SELECT r.id, r.table_id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id
+  WHERE r.id = sqlc.arg(row_id)::uuid
+    AND t.org_id = sqlc.arg(org_id)::uuid
+),
+label_col AS (
+  SELECT c.id, c.name, c.type::text AS type
+  FROM app.columns c
+  WHERE c.table_id = (SELECT table_id FROM r)
+    AND c.type IN ('text','enum')
+  ORDER BY 
+    CASE WHEN lower(c.name) = 'title' THEN 0 ELSE 1 END,
+    CASE WHEN c.is_indexed THEN 0 ELSE 1 END,
+    c.id
+  LIMIT 1
+)
+SELECT COALESCE(
+  (
+    SELECT vt.value
+    FROM app.values_text vt
+    WHERE vt.row_id = (SELECT id FROM r)
+      AND vt.column_id = (SELECT id FROM label_col)
+  ),
+  (
+    SELECT ve.value
+    FROM app.values_enum ve
+    WHERE ve.row_id = (SELECT id FROM r)
+      AND ve.column_id = (SELECT id FROM label_col)
+  )
+) AS label;
+
 -- name: DeleteUserTableRow :one
 WITH params AS (
   SELECT

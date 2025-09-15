@@ -27,6 +27,24 @@ func toJSONBytes(v any) []byte {
     }
 }
 
+func toString(v any) string {
+    switch x := v.(type) {
+    case nil:
+        return ""
+    case string:
+        return x
+    case []byte:
+        return string(x)
+    default:
+        b, _ := json.Marshal(x)
+        if len(b) > 0 && b[0] == '"' && b[len(b)-1] == '"' {
+            var s string
+            if err := json.Unmarshal(b, &s); err == nil { return s }
+        }
+        return string(b)
+    }
+}
+
 // SearchUserTable exposes the generic search over user-defined EAV tables.
 func (p *pgRepo) SearchUserTable(ctx context.Context, org_id uuid.UUID, table string, payload []byte) ([]models.TableRow, error) {
 	slog.DebugContext(ctx, "SearchUserTable", "org_id", org_id.String(), "table", table)
@@ -380,4 +398,27 @@ func (p *pgRepo) DeleteUserTableRow(ctx context.Context, orgID uuid.UUID, table 
 		return false, err
 	}
 	return r.Deleted, nil
+}
+
+func (p *pgRepo) GetRowLabel(ctx context.Context, orgID uuid.UUID, tableID int64, rowID uuid.UUID) (string, error) {
+    lbl, err := p.q.GetRowLabel(ctx, db.GetRowLabelParams{
+        OrgID:   fromUUID(orgID),
+        RowID:   fromUUID(rowID),
+        TableID: tableID,
+    })
+    if err != nil {
+        return "", err
+    }
+    return toString(lbl), nil
+}
+
+func (p *pgRepo) GetRowLabelAuto(ctx context.Context, orgID uuid.UUID, rowID uuid.UUID) (string, error) {
+    lbl, err := p.q.GetRowLabelAuto(ctx, db.GetRowLabelAutoParams{
+        OrgID: fromUUID(orgID),
+        RowID: fromUUID(rowID),
+    })
+    if err != nil {
+        return "", err
+    }
+    return toString(lbl), nil
 }
