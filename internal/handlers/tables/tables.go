@@ -80,7 +80,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
     }
     table, created, err := h.repo.CreateUserTable(r.Context(), orgID, body.Name)
     if err != nil {
-        httpserver.JSON(w, http.StatusConflict, map[string]string{"error": "create failed"})
+        status, msg := httpserver.PGErrorMessage(err, "create failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
         return
     }
     httpserver.JSON(w, http.StatusCreated, map[string]any{"created": created, "table": table})
@@ -126,7 +127,8 @@ func (h *Handler) AddColumn(w http.ResponseWriter, r *http.Request) {
     }
     col, created, err := h.repo.AddUserTableColumn(r.Context(), orgID, table, input)
     if err != nil {
-        httpserver.JSON(w, http.StatusConflict, map[string]string{"error": "add column failed"})
+        status, msg := httpserver.PGErrorMessage(err, "add column failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
         return
     }
     status := http.StatusCreated
@@ -160,7 +162,8 @@ func (h *Handler) AddRow(w http.ResponseWriter, r *http.Request) {
     }
     row, err := h.repo.InsertUserTableRow(r.Context(), orgID, table, payload)
     if err != nil {
-        httpserver.JSON(w, http.StatusConflict, map[string]string{"error": "insert failed"})
+        status, msg := httpserver.PGErrorMessage(err, "insert failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
         return
     }
     httpserver.JSON(w, http.StatusCreated, map[string]any{"row": row})
