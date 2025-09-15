@@ -53,6 +53,12 @@ type Repo interface {
     // Lookup minimal rows by indexed column (for exposing UUIDs)
     LookupIndexedRows(ctx context.Context, orgID uuid.UUID, table string, field *string, q *string, limit int) ([]models.IndexedRow, error)
 
+    // List indexed fields (text/enum) for cross-table reference building
+    ListIndexedFields(ctx context.Context, orgID uuid.UUID) ([]models.IndexedField, error)
+
+    // Delete a row by UUID from a table within the org
+    DeleteUserTableRow(ctx context.Context, orgID uuid.UUID, table string, rowID uuid.UUID) (bool, error)
+
 	// Columns management
 	AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error)
 	RemoveUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, columnName string) (models.TableColumn, bool, error)

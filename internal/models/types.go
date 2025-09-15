@@ -153,3 +153,13 @@ type IndexedRow struct {
     ID    uuid.UUID `json:"id"`
     Label string    `json:"label"`
 }
+
+// IndexedField describes an indexed label-capable field and its table.
+type IndexedField struct {
+    TableID    int64  `json:"table_id"`
+    TableSlug  string `json:"table_slug"`
+    TableName  string `json:"table_name"`
+    ColumnID   int64  `json:"column_id"`
+    ColumnName string `json:"column_name"`
+    ColumnType string `json:"column_type"`
+}

@@ -242,6 +242,54 @@ func (q *Queries) DeleteUserTable(ctx context.Context, arg DeleteUserTableParams
 	return i, err
 }
 
+const deleteUserTableRow = `-- name: DeleteUserTableRow :one
+WITH params AS (
+  SELECT
+    $1::uuid      AS org_id,
+    $2::text  AS table_name,
+    $3::uuid      AS row_id
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND t.org_id = (SELECT org_id FROM params)
+  LIMIT 1
+),
+target AS (
+  SELECT r.id
+  FROM app.rows r
+  WHERE r.id = (SELECT row_id FROM params)
+    AND r.table_id = (SELECT id FROM table_id)
+),
+del AS (
+  DELETE FROM app.rows r
+  WHERE r.id IN (SELECT id FROM target)
+  RETURNING r.id
+)
+SELECT (SELECT COUNT(*) > 0 FROM del) AS deleted,
+       (SELECT id FROM target) AS row_id
+`
+
+type DeleteUserTableRowParams struct {
+	OrgID     pgtype.UUID `db:"org_id" json:"org_id"`
+	TableName string      `db:"table_name" json:"table_name"`
+	RowID     pgtype.UUID `db:"row_id" json:"row_id"`
+}
+
+type DeleteUserTableRowRow struct {
+	Deleted bool        `db:"deleted" json:"deleted"`
+	RowID   pgtype.UUID `db:"row_id" json:"row_id"`
+}
+
+func (q *Queries) DeleteUserTableRow(ctx context.Context, arg DeleteUserTableRowParams) (DeleteUserTableRowRow, error) {
+	row := q.db.QueryRow(ctx, deleteUserTableRow, arg.OrgID, arg.TableName, arg.RowID)
+	var i DeleteUserTableRowRow
+	err := row.Scan(&i.Deleted, &i.RowID)
+	return i, err
+}
+
 const getRowData = `-- name: GetRowData :one
 WITH r AS (
   SELECT 1 FROM app.rows WHERE id = $1::uuid
@@ -379,6 +427,58 @@ func (q *Queries) InsertUserTableRow(ctx context.Context, arg InsertUserTableRow
 	var i InsertUserTableRowRow
 	err := row.Scan(&i.RowID, &i.Data)
 	return i, err
+}
+
+const listIndexedColumns = `-- name: ListIndexedColumns :many
+SELECT 
+  t.id          AS table_id,
+  t.slug        AS table_slug,
+  t.name        AS table_name,
+  c.id          AS column_id,
+  c.name        AS column_name,
+  c.type::text  AS column_type
+FROM app.tables t
+JOIN app.columns c ON c.table_id = t.id
+WHERE t.org_id = $1::uuid
+  AND c.is_indexed
+  AND c.type IN ('text','enum')
+ORDER BY t.name ASC, c.name ASC
+`
+
+type ListIndexedColumnsRow struct {
+	TableID    int64  `db:"table_id" json:"table_id"`
+	TableSlug  string `db:"table_slug" json:"table_slug"`
+	TableName  string `db:"table_name" json:"table_name"`
+	ColumnID   int64  `db:"column_id" json:"column_id"`
+	ColumnName string `db:"column_name" json:"column_name"`
+	ColumnType string `db:"column_type" json:"column_type"`
+}
+
+func (q *Queries) ListIndexedColumns(ctx context.Context, orgID pgtype.UUID) ([]ListIndexedColumnsRow, error) {
+	rows, err := q.db.Query(ctx, listIndexedColumns, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListIndexedColumnsRow
+	for rows.Next() {
+		var i ListIndexedColumnsRow
+		if err := rows.Scan(
+			&i.TableID,
+			&i.TableSlug,
+			&i.TableName,
+			&i.ColumnID,
+			&i.ColumnName,
+			&i.ColumnType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUserTables = `-- name: ListUserTables :many

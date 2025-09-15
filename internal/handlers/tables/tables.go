@@ -279,6 +279,53 @@ func (h *Handler) LookupIndexed(w http.ResponseWriter, r *http.Request) {
     httpserver.JSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+// IndexedFields handles GET /tables/indexed-fields to list org's indexed text/enum fields per table
+func (h *Handler) IndexedFields(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    items, err := h.repo.ListIndexedFields(r.Context(), orgID)
+    if err != nil {
+        status, msg := httpserver.PGErrorMessage(err, "fetch failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// DeleteRow handles DELETE /tables/{table}/rows/{row_id}
+func (h *Handler) DeleteRow(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    table := chi.URLParam(r, "table")
+    rowParam := chi.URLParam(r, "row_id")
+    if table == "" || rowParam == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "missing table or row_id"})
+        return
+    }
+    rid, err := uuid.Parse(rowParam)
+    if err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid row_id"})
+        return
+    }
+    deleted, err := h.repo.DeleteUserTableRow(r.Context(), orgID, table, rid)
+    if err != nil {
+        status, msg := httpserver.PGErrorMessage(err, "delete failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
+        return
+    }
+    if !deleted {
+        httpserver.JSON(w, http.StatusNotFound, map[string]string{"error": "row not found"})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"deleted": true, "row_id": rid.String()})
+}
+
 // RemoveColumn handles DELETE /tables/{table}/columns/{column}
 func (h *Handler) RemoveColumn(w http.ResponseWriter, r *http.Request) {
     orgID, ok := auth.OrgFromContext(r.Context())

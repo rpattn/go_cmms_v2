@@ -317,3 +317,38 @@ func (p *pgRepo) LookupIndexedRows(ctx context.Context, orgID uuid.UUID, table s
 }
 
 func ptrStr(p *string) string { if p == nil { return "" }; return *p }
+
+func (p *pgRepo) ListIndexedFields(ctx context.Context, orgID uuid.UUID) ([]models.IndexedField, error) {
+    slog.DebugContext(ctx, "ListIndexedFields", "org_id", orgID.String())
+    rows, err := p.q.ListIndexedColumns(ctx, fromUUID(orgID))
+    if err != nil {
+        slog.ErrorContext(ctx, "ListIndexedFields failed", "err", err)
+        return nil, err
+    }
+    out := make([]models.IndexedField, 0, len(rows))
+    for _, r := range rows {
+        out = append(out, models.IndexedField{
+            TableID:    r.TableID,
+            TableSlug:  r.TableSlug,
+            TableName:  r.TableName,
+            ColumnID:   r.ColumnID,
+            ColumnName: r.ColumnName,
+            ColumnType: r.ColumnType,
+        })
+    }
+    return out, nil
+}
+
+func (p *pgRepo) DeleteUserTableRow(ctx context.Context, orgID uuid.UUID, table string, rowID uuid.UUID) (bool, error) {
+    slog.DebugContext(ctx, "DeleteUserTableRow", "org_id", orgID.String(), "table", table, "row_id", rowID.String())
+    r, err := p.q.DeleteUserTableRow(ctx, db.DeleteUserTableRowParams{
+        OrgID:     fromUUID(orgID),
+        TableName: table,
+        RowID:     fromUUID(rowID),
+    })
+    if err != nil {
+        slog.ErrorContext(ctx, "DeleteUserTableRow failed", "err", err)
+        return false, err
+    }
+    return r.Deleted, nil
+}

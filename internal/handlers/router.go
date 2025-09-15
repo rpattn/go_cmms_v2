@@ -27,11 +27,13 @@ func RegisterRoutes(mux *chi.Mux, r repo.Repo) {
         sr.Use(middleware.RequireAuth(r))
         // Create and list org-scoped user tables
         sr.Get("/", t.List)
+        sr.Get("/indexed-fields", t.IndexedFields)
         sr.Post("/", t.Create)
         sr.Delete("/{table}", t.Delete)
         sr.Post("/{table}/columns", t.AddColumn)
         sr.Delete("/{table}/columns/{column}", t.RemoveColumn)
         sr.Post("/{table}/rows", t.AddRow)
+        sr.Delete("/{table}/rows/{row_id}", t.DeleteRow)
         sr.Post("/{table}/rows/indexed", t.LookupIndexed)
         sr.Post("/rows/lookup", t.LookupRow)
         sr.Post("/{table}/search", t.Search)

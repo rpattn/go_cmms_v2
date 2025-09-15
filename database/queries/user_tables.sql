@@ -318,6 +318,50 @@ FROM results
 ORDER BY label ASC NULLS LAST
 LIMIT (SELECT lim FROM params);
 
+-- name: ListIndexedColumns :many
+SELECT 
+  t.id          AS table_id,
+  t.slug        AS table_slug,
+  t.name        AS table_name,
+  c.id          AS column_id,
+  c.name        AS column_name,
+  c.type::text  AS column_type
+FROM app.tables t
+JOIN app.columns c ON c.table_id = t.id
+WHERE t.org_id = sqlc.arg(org_id)::uuid
+  AND c.is_indexed
+  AND c.type IN ('text','enum')
+ORDER BY t.name ASC, c.name ASC;
+
+-- name: DeleteUserTableRow :one
+WITH params AS (
+  SELECT
+    sqlc.arg(org_id)::uuid      AS org_id,
+    sqlc.arg(table_name)::text  AS table_name,
+    sqlc.arg(row_id)::uuid      AS row_id
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND t.org_id = (SELECT org_id FROM params)
+  LIMIT 1
+),
+target AS (
+  SELECT r.id
+  FROM app.rows r
+  WHERE r.id = (SELECT row_id FROM params)
+    AND r.table_id = (SELECT id FROM table_id)
+),
+del AS (
+  DELETE FROM app.rows r
+  WHERE r.id IN (SELECT id FROM target)
+  RETURNING r.id
+)
+SELECT (SELECT COUNT(*) > 0 FROM del) AS deleted,
+       (SELECT id FROM target) AS row_id;
+
 -- name: RemoveUserTableColumn :one
 WITH params AS (
   SELECT
