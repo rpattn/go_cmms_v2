@@ -2,23 +2,31 @@
 package handlers
 
 import (
-	"yourapp/internal/handlers/admin"
-	"yourapp/internal/handlers/users"
-	"yourapp/internal/middleware"
-	"yourapp/internal/repo"
+    tables "yourapp/internal/handlers/tables"
+    "yourapp/internal/handlers/admin"
+    "yourapp/internal/handlers/users"
+    "yourapp/internal/middleware"
+    "yourapp/internal/repo"
 
-	"github.com/go-chi/chi/v5"
+    "github.com/go-chi/chi/v5"
 )
 
 func RegisterRoutes(mux *chi.Mux, r repo.Repo) {
-	u := users.New(r)
+    u := users.New(r)
+    t := tables.New(r)
 
-	mux.Route("/users", func(sr chi.Router) {
-		// Apply auth to the whole group ONCE
-		sr.Use(middleware.RequireAuth(r))
+    mux.Route("/users", func(sr chi.Router) {
+        // Apply auth to the whole group ONCE
+        sr.Use(middleware.RequireAuth(r))
 
-		sr.Post("/search", u.Search)
-	})
+        sr.Post("/search", u.Search)
+    })
+
+    // Generic EAV table search routes
+    mux.Route("/tables", func(sr chi.Router) {
+        sr.Use(middleware.RequireAuth(r))
+        sr.Post("/{table}/search", t.Search)
+    })
 
 	// Admin routes
 	mux.Route("/admin", func(sr chi.Router) {

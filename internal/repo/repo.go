@@ -38,6 +38,9 @@ type Repo interface {
 	PickUserOrg(ctx context.Context, uid uuid.UUID) (models.Org, error)
 	SearchUsers(ctx context.Context, org_id uuid.UUID, payload []byte) ([]models.User, error)
 
+	// Generic EAV table search
+	SearchUserTable(ctx context.Context, table string, payload []byte) ([]models.TableRow, error)
+
 	UserHasTOTP(ctx context.Context, uid uuid.UUID) bool
 	SetTOTPSecret(ctx context.Context, uid uuid.UUID, secret, issuer, label string) error
 	GetTOTPSecret(ctx context.Context, uid uuid.UUID) (string, bool)

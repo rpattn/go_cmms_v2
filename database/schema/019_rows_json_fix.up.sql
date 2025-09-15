@@ -1,3 +1,4 @@
+-- Ensure rows_json never returns NULL data when a row has no values
 CREATE OR REPLACE FUNCTION app.rows_json(p_table_id bigint)
 RETURNS TABLE (row_id uuid, data jsonb)
 LANGUAGE sql AS $$
@@ -5,7 +6,6 @@ LANGUAGE sql AS $$
          COALESCE((
            SELECT jsonb_object_agg(v.name, v.val)
            FROM (
-             -- build name->typed jsonb value for each column present on the row
              SELECT c.name, to_jsonb(vt.value) val
              FROM app.values_text vt
              JOIN app.columns c ON c.id = vt.column_id
@@ -36,3 +36,4 @@ LANGUAGE sql AS $$
   WHERE r.table_id = p_table_id
   ORDER BY r.created_at DESC;
 $$;
+

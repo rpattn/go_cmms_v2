@@ -107,3 +107,10 @@ type OrgInvite struct {
     ExpiresAt time.Time
     UsedAt    time.Time
 }
+
+// TableRow is a generic result from EAV table search.
+type TableRow struct {
+    RowID      uuid.UUID         `json:"row_id"`
+    Data       map[string]any    `json:"data"`
+    TotalCount int64             `json:"total_count"`
+}
