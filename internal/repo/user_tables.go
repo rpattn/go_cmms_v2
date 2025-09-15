@@ -291,3 +291,29 @@ func (p *pgRepo) GetRowData(ctx context.Context, rowID uuid.UUID) (map[string]an
 	}
 	return data, true, nil
 }
+
+func (p *pgRepo) LookupIndexedRows(ctx context.Context, orgID uuid.UUID, table string, field *string, q *string, limit int) ([]models.IndexedRow, error) {
+    slog.DebugContext(ctx, "LookupIndexedRows", "org_id", orgID.String(), "table", table, "field", ptrStr(field), "q", ptrStr(q), "limit", limit)
+    var fld, qq string
+    if field != nil { fld = *field }
+    if q != nil { qq = *q }
+    if limit <= 0 { limit = 20 }
+    rows, err := p.q.LookupIndexedRows(ctx, db.LookupIndexedRowsParams{
+        OrgID:     fromUUID(orgID),
+        TableName: table,
+        Field:     fld,
+        Q:         qq,
+        LimitCount:     int32(limit),
+    })
+    if err != nil {
+        slog.ErrorContext(ctx, "LookupIndexedRows failed", "err", err)
+        return nil, err
+    }
+    out := make([]models.IndexedRow, 0, len(rows))
+    for _, r := range rows {
+        out = append(out, models.IndexedRow{ID: toUUID(r.RowID), Label: r.Label.String})
+    }
+    return out, nil
+}
+
+func ptrStr(p *string) string { if p == nil { return "" }; return *p }

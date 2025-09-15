@@ -147,3 +147,9 @@ type UserTable struct {
     Slug      string    `json:"slug"`
     CreatedAt time.Time `json:"created_at"`
 }
+
+// IndexedRow is a minimal listing item exposing UUIDs and a display label.
+type IndexedRow struct {
+    ID    uuid.UUID `json:"id"`
+    Label string    `json:"label"`
+}

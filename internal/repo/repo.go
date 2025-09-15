@@ -48,7 +48,10 @@ type Repo interface {
 	DeleteUserTable(ctx context.Context, orgID uuid.UUID, table string) (models.UserTable, bool, error)
 
 	// Row lookup by UUID
-	GetRowData(ctx context.Context, rowID uuid.UUID) (map[string]any, bool, error)
+    GetRowData(ctx context.Context, rowID uuid.UUID) (map[string]any, bool, error)
+
+    // Lookup minimal rows by indexed column (for exposing UUIDs)
+    LookupIndexedRows(ctx context.Context, orgID uuid.UUID, table string, field *string, q *string, limit int) ([]models.IndexedRow, error)
 
 	// Columns management
 	AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error)

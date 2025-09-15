@@ -243,6 +243,42 @@ func (h *Handler) LookupRow(w http.ResponseWriter, r *http.Request) {
     httpserver.JSON(w, http.StatusOK, map[string]any{"data": data})
 }
 
+// LookupIndexed handles POST /tables/{table}/rows/indexed
+// Body: {"field":"title","q":"fil","limit":20}
+// Returns items: [{id, label}...]
+func (h *Handler) LookupIndexed(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    table := chi.URLParam(r, "table")
+    if table == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "missing table"})
+        return
+    }
+    defer r.Body.Close()
+    var body struct{
+        Field *string `json:"field"`
+        Q     *string `json:"q"`
+        Limit *int    `json:"limit"`
+    }
+    dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+    if err := dec.Decode(&body); err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+        return
+    }
+    lim := 20
+    if body.Limit != nil { lim = *body.Limit }
+    items, err := h.repo.LookupIndexedRows(r.Context(), orgID, table, body.Field, body.Q, lim)
+    if err != nil {
+        status, msg := httpserver.PGErrorMessage(err, "lookup failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 // RemoveColumn handles DELETE /tables/{table}/columns/{column}
 func (h *Handler) RemoveColumn(w http.ResponseWriter, r *http.Request) {
     orgID, ok := auth.OrgFromContext(r.Context())

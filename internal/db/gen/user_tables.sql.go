@@ -420,6 +420,98 @@ func (q *Queries) ListUserTables(ctx context.Context, orgID pgtype.UUID) ([]List
 	return items, nil
 }
 
+const lookupIndexedRows = `-- name: LookupIndexedRows :many
+WITH params AS (
+  SELECT
+    $1::uuid      AS org_id,
+    $2::text  AS table_name,
+    NULLIF($3::text,'')       AS field,
+    NULLIF($4::text,'') AS q,
+    GREATEST(1, LEAST(COALESCE($5::int, 20), 100)) AS lim
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+  ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+  LIMIT 1
+),
+label_col AS (
+  SELECT c.id, c.name, c.type::text AS type
+  FROM app.columns c
+  WHERE c.table_id = (SELECT id FROM table_id)
+    AND c.type IN ('text','enum')
+    AND ((SELECT field FROM params) IS NULL OR lower(c.name) = lower((SELECT field FROM params)))
+  ORDER BY 
+    CASE WHEN lower(c.name) = 'title' THEN 0 ELSE 1 END,
+    CASE WHEN c.is_indexed THEN 0 ELSE 1 END,
+    c.id
+  LIMIT 1
+),
+results AS (
+  SELECT r.id AS row_id, vt.value AS label
+  FROM app.values_text vt
+  JOIN app.rows r ON r.id = vt.row_id
+  WHERE (SELECT type FROM label_col) = 'text'
+    AND vt.column_id = (SELECT id FROM label_col)
+    AND r.table_id = (SELECT id FROM table_id)
+    AND ((SELECT q FROM params) IS NULL OR vt.value ILIKE '%' || (SELECT q FROM params) || '%')
+  UNION ALL
+  SELECT r.id AS row_id, ve.value AS label
+  FROM app.values_enum ve
+  JOIN app.rows r ON r.id = ve.row_id
+  WHERE (SELECT type FROM label_col) = 'enum'
+    AND ve.column_id = (SELECT id FROM label_col)
+    AND r.table_id = (SELECT id FROM table_id)
+    AND ((SELECT q FROM params) IS NULL OR ve.value ILIKE '%' || (SELECT q FROM params) || '%')
+)
+SELECT row_id, label
+FROM results
+ORDER BY label ASC NULLS LAST
+LIMIT (SELECT lim FROM params)
+`
+
+type LookupIndexedRowsParams struct {
+	OrgID      pgtype.UUID `db:"org_id" json:"org_id"`
+	TableName  string      `db:"table_name" json:"table_name"`
+	Field      string      `db:"field" json:"field"`
+	Q          string      `db:"q" json:"q"`
+	LimitCount int32       `db:"limit_count" json:"limit_count"`
+}
+
+type LookupIndexedRowsRow struct {
+	RowID pgtype.UUID `db:"row_id" json:"row_id"`
+	Label pgtype.Text `db:"label" json:"label"`
+}
+
+func (q *Queries) LookupIndexedRows(ctx context.Context, arg LookupIndexedRowsParams) ([]LookupIndexedRowsRow, error) {
+	rows, err := q.db.Query(ctx, lookupIndexedRows,
+		arg.OrgID,
+		arg.TableName,
+		arg.Field,
+		arg.Q,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LookupIndexedRowsRow
+	for rows.Next() {
+		var i LookupIndexedRowsRow
+		if err := rows.Scan(&i.RowID, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeUserTableColumn = `-- name: RemoveUserTableColumn :one
 WITH params AS (
   SELECT
