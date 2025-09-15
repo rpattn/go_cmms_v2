@@ -145,3 +145,37 @@ Ecosystem: sqlc, chi, pgx, pquerna/otp → strong libraries with minimal runtime
 Deployment: Easy to ship anywhere (Docker, bare metal, cloud).
 
 Scalability: Well-suited for multi-tenant SaaS and high-concurrency APIs.
+
+---
+
+## App Overview (User Tables + Org Scoping)
+
+This server includes a dynamic, org-scoped EAV model for user-defined tables:
+
+- Define tables and columns at runtime per organisation
+- Store rows with strongly typed values (text/date/bool/enum/uuid/float)
+- Search with filters and pagination, returning row JSON plus table schema
+- Manage columns (add/remove) and rows (insert/delete)
+- Indexed lookups expose UUIDs + human labels for cross-table references
+- Friendly Postgres error messages mapped to clean API responses
+
+### Key Endpoints (selected)
+
+- Tables
+  - GET `/tables/` — list tables
+  - POST `/tables/` — create a table `{ name }`
+  - DELETE `/tables/{table}` — delete a table
+  - GET `/tables/indexed-fields` — list indexed text/enum fields per table
+
+- Columns
+  - POST `/tables/{table}/columns` — add a column
+  - DELETE `/tables/{table}/columns/{column}` — remove a column
+
+- Rows
+  - POST `/tables/{table}/rows` — insert a row
+  - DELETE `/tables/{table}/rows/{row_id}` — delete a row
+  - POST `/tables/{table}/search` — search; response `{ columns, content, total_count }`
+  - POST `/tables/{table}/rows/indexed` — list `{ id, label }` for lookups
+  - POST `/tables/rows/lookup` — get composed JSON by UUID `{ id }`
+
+All routes are org-scoped via the authenticated session.
