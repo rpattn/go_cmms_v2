@@ -69,6 +69,8 @@ type AppColumn struct {
 	IsReference           bool          `db:"is_reference" json:"is_reference"`
 	ReferenceTableID      pgtype.Int8   `db:"reference_table_id" json:"reference_table_id"`
 	RequireDifferentTable bool          `db:"require_different_table" json:"require_different_table"`
+	PhysicalColumnName    pgtype.Text   `db:"physical_column_name" json:"physical_column_name"`
+	EnumTypeName          pgtype.Text   `db:"enum_type_name" json:"enum_type_name"`
 }
 
 type AppRow struct {
@@ -78,11 +80,15 @@ type AppRow struct {
 }
 
 type AppTable struct {
-	ID        int64              `db:"id" json:"id"`
-	Name      string             `db:"name" json:"name"`
-	Slug      string             `db:"slug" json:"slug"`
-	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	OrgID     pgtype.UUID        `db:"org_id" json:"org_id"`
+	ID                int64              `db:"id" json:"id"`
+	Name              string             `db:"name" json:"name"`
+	Slug              string             `db:"slug" json:"slug"`
+	CreatedAt         pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	OrgID             pgtype.UUID        `db:"org_id" json:"org_id"`
+	SchemaName        string             `db:"schema_name" json:"schema_name"`
+	PhysicalTableName pgtype.Text        `db:"physical_table_name" json:"physical_table_name"`
+	StorageMode       interface{}        `db:"storage_mode" json:"storage_mode"`
+	MigratedAt        pgtype.Timestamptz `db:"migrated_at" json:"migrated_at"`
 }
 
 type AppValuesBool struct {

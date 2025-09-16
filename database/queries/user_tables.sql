@@ -119,14 +119,18 @@ WITH s AS (
   SELECT sqlc.arg(org_id)::uuid, sqlc.arg(name)::text, s.slug FROM s
   ON CONFLICT (org_id, slug) DO NOTHING
   RETURNING id, name, slug, created_at
+), tbl AS (
+  SELECT true AS created, id, name, slug, created_at FROM ins
+  UNION ALL
+  SELECT false AS created, t.id, t.name, t.slug, t.created_at
+  FROM app.tables t
+  JOIN s ON s.slug = t.slug
+  WHERE t.org_id = sqlc.arg(org_id)::uuid
+  LIMIT 1
+), _ensure_phys AS (
+  SELECT app.ensure_physical_table(id) FROM tbl
 )
-SELECT true AS created, id, name, slug, created_at FROM ins
-UNION ALL
-SELECT false AS created, t.id, t.name, t.slug, t.created_at
-FROM app.tables t
-JOIN s ON s.slug = t.slug
-WHERE t.org_id = sqlc.arg(org_id)::uuid
-LIMIT 1;
+SELECT created, id, name, slug, created_at FROM tbl;
 
 -- name: ListUserTables :many
 SELECT id, name, slug, created_at
@@ -197,6 +201,8 @@ ins AS (
 ),
 _ensure AS (
   SELECT CASE WHEN (SELECT is_indexed FROM params) THEN app.ensure_index(id) END FROM ins
+), _phys AS (
+  SELECT app.add_physical_column(id) FROM ins
 )
 SELECT true AS created,
        id, table_id, name, type, is_required, is_indexed, to_jsonb(enum_values) AS enum_values,
@@ -228,6 +234,14 @@ table_id AS (
 ),
 ins AS (
   SELECT app.insert_row((SELECT id FROM table_id), (SELECT values FROM params)) AS row_id
+),
+phys AS (
+  SELECT app.insert_row_physical(
+           (SELECT id FROM table_id),
+           (SELECT org_id FROM params),
+           (SELECT row_id FROM ins),
+           (SELECT values FROM params)
+         )
 )
 SELECT i.row_id,
        app.row_to_json(i.row_id) AS data
@@ -502,6 +516,13 @@ del AS (
   DELETE FROM app.rows r
   WHERE r.id IN (SELECT id FROM target)
   RETURNING r.id
+),
+phys AS (
+  SELECT app.delete_row_physical(
+           (SELECT id FROM table_id),
+           (SELECT org_id FROM params),
+           (SELECT row_id FROM params)
+         )
 )
 SELECT (SELECT COUNT(*) > 0 FROM del) AS deleted,
        (SELECT id FROM target) AS row_id;

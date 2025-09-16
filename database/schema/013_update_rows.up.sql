@@ -2,6 +2,7 @@ CREATE OR REPLACE FUNCTION app.update_row(p_row_id uuid, p_values jsonb)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
   t_id bigint;
+  org uuid;
   rec record;
   col app.columns;
 BEGIN
@@ -46,4 +47,12 @@ BEGIN
       PERFORM app.ensure_index(col.id);
     END IF;
   END LOOP;
+
+  -- Dual-write: upsert into physical table with merged values
+  -- Compute org_id and write the current row state to the physical table
+  SELECT t.org_id INTO org FROM app.rows r JOIN app.tables t ON t.id = r.table_id WHERE r.id = p_row_id;
+  IF org IS NOT NULL THEN
+    PERFORM app.ensure_physical_table(t_id);
+    PERFORM app.insert_row_physical(t_id, org, p_row_id, app.row_to_json(p_row_id));
+  END IF;
 END$$;

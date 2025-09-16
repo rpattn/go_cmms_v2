@@ -179,3 +179,8 @@ This server includes a dynamic, org-scoped EAV model for user-defined tables:
   - POST `/tables/rows/lookup` — get composed JSON by UUID `{ id }`
 
 All routes are org-scoped via the authenticated session.
+
+
+## TODO
+Fix filtering
+uuid array support
