@@ -100,6 +100,10 @@ BEGIN
       INSERT INTO app.values_uuid(row_id, column_id, value)
       VALUES (p_row_id, col.id, (rec.value)::uuid)
       ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
+    ELSIF col.type='float' THEN
+      INSERT INTO app.values_float(row_id, column_id, value)
+      VALUES (p_row_id, col.id, (rec.value)::double precision)
+      ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
     END IF;
 
     IF col.is_indexed THEN

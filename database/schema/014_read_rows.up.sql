@@ -11,6 +11,11 @@ LANGUAGE sql AS $$
              JOIN app.columns c ON c.id = vt.column_id
              WHERE vt.row_id = r.id
              UNION ALL
+             SELECT c.name, to_jsonb(vf.value)
+             FROM app.values_float vf
+             JOIN app.columns c ON c.id = vf.column_id
+             WHERE vf.row_id = r.id
+             UNION ALL
              SELECT c.name, to_jsonb(vd.value)
              FROM app.values_date vd
              JOIN app.columns c ON c.id = vd.column_id

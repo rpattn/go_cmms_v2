@@ -81,6 +81,8 @@ BEGIN
     AND NOT EXISTS (
       SELECT 1 FROM app.values_text vt WHERE vt.row_id = r_id AND vt.column_id = c.id
       UNION ALL
+      SELECT 1 FROM app.values_float vf WHERE vf.row_id = r_id AND vf.column_id = c.id
+      UNION ALL
       SELECT 1 FROM app.values_date vd WHERE vd.row_id = r_id AND vd.column_id = c.id
       UNION ALL
       SELECT 1 FROM app.values_bool vb WHERE vb.row_id = r_id AND vb.column_id = c.id
