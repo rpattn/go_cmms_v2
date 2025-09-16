@@ -27,6 +27,8 @@ DECLARE
   arr_list text;
   cond text;
   has_filters boolean := false;
+  sort_dir text;
+  order_sql text;
 BEGIN
   -- Resolve table id and physical identifiers
   SELECT id, COALESCE(schema_name,'app_data'), COALESCE(physical_table_name, 't_'||id::text), storage_mode
@@ -41,68 +43,135 @@ BEGIN
     RETURN; -- empty
   END IF;
 
+  -- Parse sort direction (support created_at ASC/DESC). Default DESC.
+  sort_dir := upper(COALESCE(NULLIF(p_payload->>'direction',''),'DESC'));
+  IF sort_dir NOT IN ('ASC','DESC') THEN sort_dir := 'DESC'; END IF;
+
   -- If table not yet cut over to relational, run EAV-based filtering to preserve semantics
   IF v_storage IS NULL OR v_storage <> 'relational' THEN
-    RETURN QUERY
-    WITH ff AS (
-      SELECT jsonb_array_elements(p_payload->'filterFields') AS f
-      WHERE (p_payload ? 'filterFields') AND jsonb_typeof(p_payload->'filterFields') = 'array'
-    ),
-    filtered AS (
-      SELECT 
-        b.id,
-        b.created_at,
-        COUNT(*) OVER() AS total_count
-      FROM app.rows b
-      JOIN app.tables t ON t.id = b.table_id
-      WHERE b.table_id = v_table_id AND t.org_id = p_org_id
-        AND (
-          NOT EXISTS (SELECT 1 FROM ff) OR
-          EXISTS (
-            SELECT 1
-            FROM ff
-            LEFT JOIN app.columns c ON c.table_id = v_table_id
-              AND lower(c.name) = lower((f->>'field'))
-            WHERE 
-              CASE
-                WHEN c.type = 'text' THEN EXISTS (
-                  SELECT 1 FROM app.values_text vt
-                  WHERE vt.row_id = b.id AND vt.column_id = c.id AND (
-                    CASE COALESCE(f->>'operation','eq')
-                      WHEN 'eq' THEN vt.value = (f->>'value')
-                      WHEN 'cn' THEN vt.value ILIKE '%' || (f->>'value') || '%'
-                      WHEN 'in' THEN vt.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
-                      ELSE TRUE
-                    END
+    IF sort_dir = 'ASC' THEN
+      RETURN QUERY
+      WITH ff AS (
+        SELECT jsonb_array_elements(p_payload->'filterFields') AS f
+        WHERE (p_payload ? 'filterFields') AND jsonb_typeof(p_payload->'filterFields') = 'array'
+      ),
+      filtered AS (
+        SELECT 
+          b.id,
+          b.created_at,
+          COUNT(*) OVER() AS total_count
+        FROM app.rows b
+        JOIN app.tables t ON t.id = b.table_id
+        WHERE b.table_id = v_table_id AND t.org_id = p_org_id
+          AND (
+            NOT EXISTS (SELECT 1 FROM ff) OR
+            EXISTS (
+              SELECT 1
+              FROM ff
+              LEFT JOIN app.columns c ON c.table_id = v_table_id
+                AND lower(c.name) = lower((f->>'field'))
+              WHERE 
+                CASE
+                  WHEN c.type = 'text' THEN EXISTS (
+                    SELECT 1 FROM app.values_text vt
+                    WHERE vt.row_id = b.id AND vt.column_id = c.id AND (
+                      CASE COALESCE(f->>'operation','eq')
+                        WHEN 'eq' THEN vt.value = (f->>'value')
+                        WHEN 'cn' THEN vt.value ILIKE '%' || (f->>'value') || '%'
+                        WHEN 'in' THEN vt.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
+                        ELSE TRUE
+                      END
+                    )
                   )
-                )
-                WHEN c.type = 'enum' THEN EXISTS (
-                  SELECT 1 FROM app.values_enum ve
-                  WHERE ve.row_id = b.id AND ve.column_id = c.id AND (
-                    CASE COALESCE(f->>'operation','eq')
-                      WHEN 'eq' THEN ve.value = (f->>'value')
-                      WHEN 'in' THEN ve.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
-                      ELSE TRUE
-                    END
+                  WHEN c.type = 'enum' THEN EXISTS (
+                    SELECT 1 FROM app.values_enum ve
+                    WHERE ve.row_id = b.id AND ve.column_id = c.id AND (
+                      CASE COALESCE(f->>'operation','eq')
+                        WHEN 'eq' THEN ve.value = (f->>'value')
+                        WHEN 'in' THEN ve.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
+                        ELSE TRUE
+                      END
+                    )
                   )
-                )
-                WHEN c.type = 'bool' THEN EXISTS (
-                  SELECT 1 FROM app.values_bool vb
-                  WHERE vb.row_id = b.id AND vb.column_id = c.id 
-                  AND vb.value IS NOT DISTINCT FROM ((f->>'value')::boolean)
-                )
-                ELSE TRUE
-              END
+                  WHEN c.type = 'bool' THEN EXISTS (
+                    SELECT 1 FROM app.values_bool vb
+                    WHERE vb.row_id = b.id AND vb.column_id = c.id 
+                    AND vb.value IS NOT DISTINCT FROM ((f->>'value')::boolean)
+                  )
+                  ELSE TRUE
+                END
+            )
           )
-        )
-    )
-    SELECT f.id AS row_id,
-           app.row_to_json(f.id) AS row_data,
-           f.total_count
-    FROM filtered f
+      )
+      SELECT f.id AS row_id,
+             app.row_to_json(f.id) AS row_data,
+             f.total_count
+      FROM filtered f
+      ORDER BY f.created_at ASC
+      LIMIT page_size OFFSET page_size * page_num;
+      RETURN;
+    ELSE
+      RETURN QUERY
+      WITH ff AS (
+        SELECT jsonb_array_elements(p_payload->'filterFields') AS f
+        WHERE (p_payload ? 'filterFields') AND jsonb_typeof(p_payload->'filterFields') = 'array'
+      ),
+      filtered AS (
+        SELECT 
+          b.id,
+          b.created_at,
+          COUNT(*) OVER() AS total_count
+        FROM app.rows b
+        JOIN app.tables t ON t.id = b.table_id
+        WHERE b.table_id = v_table_id AND t.org_id = p_org_id
+          AND (
+            NOT EXISTS (SELECT 1 FROM ff) OR
+            EXISTS (
+              SELECT 1
+              FROM ff
+              LEFT JOIN app.columns c ON c.table_id = v_table_id
+                AND lower(c.name) = lower((f->>'field'))
+              WHERE 
+                CASE
+                  WHEN c.type = 'text' THEN EXISTS (
+                    SELECT 1 FROM app.values_text vt
+                    WHERE vt.row_id = b.id AND vt.column_id = c.id AND (
+                      CASE COALESCE(f->>'operation','eq')
+                        WHEN 'eq' THEN vt.value = (f->>'value')
+                        WHEN 'cn' THEN vt.value ILIKE '%' || (f->>'value') || '%'
+                        WHEN 'in' THEN vt.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
+                        ELSE TRUE
+                      END
+                    )
+                  )
+                  WHEN c.type = 'enum' THEN EXISTS (
+                    SELECT 1 FROM app.values_enum ve
+                    WHERE ve.row_id = b.id AND ve.column_id = c.id AND (
+                      CASE COALESCE(f->>'operation','eq')
+                        WHEN 'eq' THEN ve.value = (f->>'value')
+                        WHEN 'in' THEN ve.value = ANY(ARRAY(SELECT jsonb_array_elements_text(f->'values')))
+                        ELSE TRUE
+                      END
+                    )
+                  )
+                  WHEN c.type = 'bool' THEN EXISTS (
+                    SELECT 1 FROM app.values_bool vb
+                    WHERE vb.row_id = b.id AND vb.column_id = c.id 
+                    AND vb.value IS NOT DISTINCT FROM ((f->>'value')::boolean)
+                  )
+                  ELSE TRUE
+                END
+            )
+          )
+      )
+      SELECT f.id AS row_id,
+             app.row_to_json(f.id) AS row_data,
+             f.total_count
+      FROM filtered f
     ORDER BY f.created_at DESC
-    LIMIT page_size OFFSET page_size * page_num;
-    RETURN;
+      LIMIT page_size OFFSET page_size * page_num;
+      RETURN;
+    END IF;
   END IF;
 
   PERFORM app.ensure_physical_table(v_table_id);
@@ -187,7 +256,14 @@ BEGIN
     END IF;
   END LOOP;
 
-  final_sql := base_sql || where_sql || format(' ORDER BY x.created_at DESC LIMIT %s OFFSET %s', page_size, page_num * page_size);
+  -- For relational storage, support sorting by created_at with direction
+  IF sort_dir = 'ASC' THEN
+    order_sql := ' ORDER BY x.created_at ASC';
+  ELSE
+    order_sql := ' ORDER BY x.created_at DESC';
+  END IF;
+
+  final_sql := base_sql || where_sql || order_sql || format(' LIMIT %s OFFSET %s', page_size, page_num * page_size);
 
   RETURN QUERY EXECUTE final_sql;
 END;
