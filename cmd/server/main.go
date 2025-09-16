@@ -63,8 +63,8 @@ func main() {
 	slog.Debug("database connection ready")
 
 	// sqlc queries + repo wrapper
-	q := db.New(pool)
-	r := repo.New(q)
+    q := db.New(pool)
+    r := repo.NewWithDB(pool, q)
 
 	// --- Setup OAuth/OIDC providers ---
 	providers := auth.SetupProviders(cfg)

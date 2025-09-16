@@ -77,6 +77,7 @@ type AppRow struct {
 	ID        pgtype.UUID        `db:"id" json:"id"`
 	TableID   int64              `db:"table_id" json:"table_id"`
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
 type AppTable struct {

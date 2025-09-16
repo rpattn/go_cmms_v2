@@ -57,7 +57,8 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "schema fetch failed"})
 		return
 	}
-	rows, err := h.repo.SearchUserTable(r.Context(), orgID, table, payload)
+    // Use physical search (falls back to EAV if raw DB not wired)
+    rows, err := h.repo.SearchUserTablePhysical(r.Context(), orgID, table, payload)
 	if err != nil {
 		httpserver.JSON(w, http.StatusInternalServerError, map[string]string{"error": "search failed"})
 		return

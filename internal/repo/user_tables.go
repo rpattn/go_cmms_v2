@@ -10,6 +10,7 @@ import (
     "yourapp/internal/models"
 
     "github.com/google/uuid"
+    "github.com/jackc/pgx/v5/pgtype"
 )
 
 // toJSONBytes tries to normalize various JSON representations to a []byte
@@ -75,6 +76,50 @@ func (p *pgRepo) SearchUserTable(ctx context.Context, org_id uuid.UUID, table st
 	}
 	slog.DebugContext(ctx, "SearchUserTable ok", "count", len(out))
 	return out, nil
+}
+
+// SearchUserTablePhysical calls the server-side physical search function directly via DBTX.
+// Falls back to the EAV-based SearchUserTable if a raw DB is not available.
+func (p *pgRepo) SearchUserTablePhysical(ctx context.Context, org_id uuid.UUID, table string, payload []byte) ([]models.TableRow, error) {
+    if p.db == nil {
+        return p.SearchUserTable(ctx, org_id, table, payload)
+    }
+    slog.DebugContext(ctx, "SearchUserTablePhysical", "org_id", org_id.String(), "table", table)
+    // Select positional columns to avoid depending on function column names
+    const q = `SELECT * FROM app.search_user_table_physical($1::text, $2::uuid, $3::jsonb)`
+    rows, err := p.db.Query(ctx, q, table, fromUUID(org_id), payload)
+    if err != nil {
+        slog.ErrorContext(ctx, "SearchUserTablePhysical failed", "err", err)
+        return nil, err
+    }
+    defer rows.Close()
+    out := make([]models.TableRow, 0, 16)
+    for rows.Next() {
+        var rid pgtype.UUID
+        var jb []byte
+        var total int64
+        if err := rows.Scan(&rid, &jb, &total); err != nil {
+            slog.ErrorContext(ctx, "scan error", "err", err)
+            return nil, err
+        }
+        var data map[string]any
+        if len(jb) > 0 {
+            if err := json.Unmarshal(jb, &data); err != nil {
+                slog.WarnContext(ctx, "SearchUserTablePhysical: bad row JSON", "err", err)
+            }
+        }
+        out = append(out, models.TableRow{
+            RowID:      toUUID(rid),
+            Data:       data,
+            TotalCount: total,
+        })
+    }
+    if err := rows.Err(); err != nil {
+        slog.ErrorContext(ctx, "rows error", "err", err)
+        return nil, err
+    }
+    slog.DebugContext(ctx, "SearchUserTablePhysical ok", "count", len(out))
+    return out, nil
 }
 
 // GetUserTableSchema returns the list of columns for a user-defined table in an org.

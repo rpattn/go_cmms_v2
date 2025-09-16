@@ -40,6 +40,8 @@ type Repo interface {
 
 	// Generic EAV table search
 	SearchUserTable(ctx context.Context, org_id uuid.UUID, table string, payload []byte) ([]models.TableRow, error)
+	// Physical search (direct function call, not via sqlc)
+	SearchUserTablePhysical(ctx context.Context, org_id uuid.UUID, table string, payload []byte) ([]models.TableRow, error)
 	GetUserTableSchema(ctx context.Context, org_id uuid.UUID, table string) ([]models.TableColumn, error)
 
 	// User-defined tables (org-scoped)
@@ -96,6 +98,13 @@ type Repo interface {
 }
 
 // pgRepo wraps the sqlc Queries.
-type pgRepo struct{ q *db.Queries }
+type pgRepo struct{
+    q  *db.Queries
+    db db.DBTX // raw access for custom queries
+}
 
+// New creates a repo with only sqlc queries (legacy). Raw methods will be unavailable.
 func New(q *db.Queries) Repo { return &pgRepo{q: q} }
+
+// NewWithDB creates a repo with both sqlc queries and a DBTX for custom calls.
+func NewWithDB(dbx db.DBTX, q *db.Queries) Repo { return &pgRepo{q: q, db: dbx} }
