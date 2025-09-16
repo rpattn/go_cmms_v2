@@ -68,6 +68,7 @@ DECLARE
   org uuid;
   rec record;
   col app.columns;
+  eav_data jsonb;
 BEGIN
   SELECT table_id INTO t_id FROM app.rows WHERE id = p_row_id;
   IF t_id IS NULL THEN RAISE EXCEPTION 'Unknown row_id %', p_row_id; END IF;
@@ -113,7 +114,9 @@ BEGIN
   SELECT t.org_id INTO org FROM app.rows r JOIN app.tables t ON t.id = r.table_id WHERE r.id = p_row_id;
   IF org IS NOT NULL THEN
     PERFORM app.ensure_physical_table(t_id);
-    PERFORM app.insert_row_physical(t_id, org, p_row_id, app.row_to_json(p_row_id));
+    -- Build canonical JSON from EAV only (avoid physical-first path to prevent stale writes)
+    SELECT data INTO eav_data FROM app.rows_json(t_id) WHERE row_id = p_row_id;
+    PERFORM app.insert_row_physical(t_id, org, p_row_id, COALESCE(eav_data, '{}'::jsonb));
   END IF;
 END$$;
 
@@ -175,4 +178,3 @@ END;
 $$;
 
 COMMIT;
-
