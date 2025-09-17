@@ -1,87 +1,19 @@
-Title: Org‑scoped EAV tables with schema, search, lookups, and admin endpoints
+Title: Dual-write EAV tables with physical storage, search, and float support
 
-Summary
-- Added a full set of org‑scoped “user tables” features on top of the existing auth stack: table/column/row management, search with schema, indexed lookups, row lookup by UUID, and delete operations. Also improved error handling and seeding.
+## Summary
+- Added dual-write infrastructure that keeps the canonical EAV buckets and per-table physical storage in sync (`app.ensure_physical_table`, `app.add_physical_column`, `app.insert_row_physical`, `app.delete_row_physical`).
+- Extended the schema metadata and migrations to provision physical tables, create per-column enum/FK/index constraints, and track logical row timestamps for change detection.
+- Fixed missing float coverage across insert/update/row JSON helpers so floats behave like the other scalar types end-to-end.
+- Introduced physical-table search/read helpers while keeping existing endpoints org-scoped and backward compatible.
+- Added PATCH endpoint to edit rows 
 
-Highlights
-- Org scoping
-  - `app.tables` now has `org_id` with per‑org uniqueness (`(org_id, slug)`), allowing different orgs to have different schemas for the same table slug.
-  - Queries prefer the org‑specific table definition and allow a global fallback where appropriate.
+## Highlights
+- `database/schema/021_physical_storage.up.sql` scaffolds metadata, physical DDL helpers, and enum/index/FK wiring for table-per-collection mode.
+- `database/schema/022_dual_write.up.sql`, `028_insert_physical_ensure_cols.up.sql`, and `029_cutover_helpers.up.sql` implement insert/delete/backfill helpers that hydrate physical tables from canonical JSON.
+- `database/schema/025_physical_search.up.sql` adds `app.search_user_table_physical` with filter/sort parity plus automatic fallback when a table has not been cut over.
+- `database/schema/026_row_timestamps.up.sql` adds `updated_at`, ensures physical triggers, and rebuilds `app.update_row` to dual-write using canonical EAV JSON.
+- `database/schema/027_rows_json_float_fix.up.sql` rewrites `app.rows_json` to include floats so search/read payloads stay accurate.
+- `database/queries/user_tables.sql` and regenerated `internal/db/gen` wire the new helpers into the API surface, while `internal/repo/user_tables.go` adds a physical-search fast path when a raw connection is available.
 
-- Row JSON fix
-  - Hardened `app.row_to_json(uuid)` to never return NULL by coalescing each aggregate step.
-
-- Search improvements
-  - `POST /tables/{table}/search` now returns `{ columns, content, total_count }` with content unpacked from row JSON. If no filters are provided, search returns most recent rows by `created_at`.
-
-- Table management
-  - `GET /tables/` — list org tables
-  - `POST /tables/` — create table (slug from name)
-  - `DELETE /tables/{table}` — delete org table
-
-- Column management
-  - `POST /tables/{table}/columns` — add column (supports text/date/bool/enum/uuid/float; enum values; references; require_different_table; auto‑index via `ensure_index`)
-  - `DELETE /tables/{table}/columns/{column}` — remove a column (cascades to values_* by FK)
-
-- Row management
-  - `POST /tables/{table}/rows` — insert row (type‑checked via PL/pgSQL)
-  - `DELETE /tables/{table}/rows/{row_id}` — delete a row (org/table scoped)
-
-- Indexed lookups and UUID exposure
-  - `POST /tables/{table}/rows/indexed` — returns `{ id, label }` items using an indexed label column (prefers `title`, then indexed text/enum, then any text/enum)
-  - `POST /tables/rows/lookup` — returns composed row JSON for a given UUID `{ id }`
-  - `GET /tables/indexed-fields` — lists text/enum indexed fields per table for building cross‑table references
-
-- Error mapping
-  - Added `PGErrorMessage()` to map common Postgres errors to HTTP statuses + safe messages (unique violations, not‑null, check constraints, invalid format, raise exception messages from functions).
-
-- Seed data
-  - Expanded `017_seed_wos.up.sql` with multiple North Shore Wind sample work orders.
-
-Files and changes (key)
-- database/schema
-  - 018_search_tables.up.sql — fixed `row_to_json` NULL propagation
-  - 020_org_scoping.(up|down).sql — add `org_id` to `app.tables`, unique indexes per org
-  - 017_seed_wos.up.sql — added realistic seed work orders
-
-- database/queries/user_tables.sql — new/updated queries
-  - SearchUserTable: org‑aware resolution; default to newest when no filters
-  - GetUserTableSchema: returns table columns for rendering
-  - CreateUserTable, ListUserTables, DeleteUserTable
-  - AddUserTableColumn, RemoveUserTableColumn
-  - InsertUserTableRow, DeleteUserTableRow
-  - GetRowData (row JSON by UUID)
-  - LookupIndexedRows (UUID+label), ListIndexedColumns (for cross‑table reference building)
-
-- internal/db/gen — corresponding generated bindings added/updated
-
-- internal/repo
-  - Interface now includes table/column/row management, lookups, and helper methods
-  - Implementations in `user_tables.go` for all new operations
-
-- internal/handlers/tables
-  - Endpoints added:
-    - Create (POST /tables/)
-    - List (GET /tables/)
-    - Delete (DELETE /tables/{table})
-    - AddColumn (POST /tables/{table}/columns)
-    - RemoveColumn (DELETE /tables/{table}/columns/{column})
-    - AddRow (POST /tables/{table}/rows)
-    - DeleteRow (DELETE /tables/{table}/rows/{row_id})
-    - Search (POST /tables/{table}/search) — now returns schema + unpacked rows + total_count
-    - LookupIndexed (POST /tables/{table}/rows/indexed)
-    - LookupRow (POST /tables/rows/lookup)
-
-- internal/http
-  - `pgerrors.go` — user‑friendly Postgres error mapping helper
-
-Operational notes
-- Index creation: ensure indexed columns have GIN/B‑tree created via `app.ensure_index`. You can trigger for existing columns with:
-  - `SELECT app.ensure_index(id) FROM app.columns WHERE is_indexed;`
-- Planner stats: `ANALYZE app.values_text; ANALYZE app.values_enum;` after large changes
-
-Follow‑ups (optional)
-- Add RLS policies using `current_setting('app.org_id')` and set per request/tx
-- Add PATCH endpoints for updating rows/columns
-- Add clone/copy schema utilities between orgs
-
+## Testing
+- Not run (pending CI)

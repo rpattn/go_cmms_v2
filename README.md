@@ -159,6 +159,44 @@ This server includes a dynamic, org-scoped EAV model for user-defined tables:
 - Indexed lookups expose UUIDs + human labels for cross-table references
 - Friendly Postgres error messages mapped to clean API responses
 
+## Database Architecture (EAV + Physical Tables)
+
+The data model now keeps a canonical entity-attribute-value (EAV) representation **and** an organisation-scoped physical table for each user-defined collection. Logical metadata drives both shapes so validation and storage stay in sync.
+
+### Logical metadata & canonical storage
+
+- `app.tables` records each user table, including `org_id`, generated slugs, and dual-write metadata such as `schema_name`, `physical_table_name`, `storage_mode`, and `migrated_at` flags.
+- `app.columns` stores the schema definition for every column (type, required/index flags, enum values, reference metadata, and optional overrides for physical column/type names).
+- Row data lives canonically in per-type value buckets:
+  - `app.values_text`
+  - `app.values_float`
+  - `app.values_date`
+  - `app.values_bool`
+  - `app.values_enum`
+  - `app.values_uuid`
+- Helper views/functions such as `app.rows_json(table_id)` and `app.row_to_json(row_id)` merge the per-type buckets into consistent JSON payloads (including `created_at`/`updated_at`).
+
+### Physical tables & dual-write flow
+
+- `app.ensure_physical_table(table_id)` lazily provisions the schema-backed table (default schema `app_data`) with base columns (`id`, `org_id`, `table_id`, `created_at`, `updated_at`) and supporting indexes/triggers.
+- `app.add_physical_column(column_id)` materialises each logical column into the physical table, creating enum types, indexes, and reference FKs as needed.
+- Writes go through `app.insert_row` / `app.update_row`, which populate the EAV buckets and then call `app.insert_row_physical` to upsert the physical row. Updates build canonical JSON from the EAV data before writing to avoid replaying stale physical copies.
+- Deletes run `app.delete_row_physical` after removing the logical row so physical tables stay in sync.
+- Physical search (`app.search_user_table_physical`) honours the same filter/ordering semantics as the EAV path and automatically falls back until a table is marked `storage_mode = 'relational'`.
+
+### Why table-per-collection?
+
+- **Constraints and indexes** – real tables let us attach NOT NULL, FK, enum, and expression indexes that the EAV layout cannot efficiently enforce.
+- **Query performance** – denormalised JSON from the EAV buckets is kept for compatibility, but the physical tables unlock direct scans/filtering on typed columns without repeated JSON aggregation.
+- **Incremental migration** – tables start in `storage_mode = 'eav'`; dual-write keeps both shapes consistent until a collection is fully validated, after which reads can cut over to the physical layout.
+
+### Operational helpers
+
+- Run `SELECT app.ensure_physical_table(id) FROM app.tables;` to pre-create tables before heavy ingestion.
+- Call `SELECT app.add_physical_column(id) FROM app.columns;` after schema changes to materialise new fields.
+- Use `SELECT app.insert_row_physical(table_id, org_id, row_id, app.row_to_json(row_id))` during backfills to hydrate physical storage from canonical JSON.
+
+
 ### Key Endpoints (selected)
 
 - Tables
@@ -177,6 +215,7 @@ This server includes a dynamic, org-scoped EAV model for user-defined tables:
   - POST `/tables/{table}/search` — search; response `{ columns, content, total_count }`
   - POST `/tables/{table}/rows/indexed` — list `{ id, label }` for lookups
   - POST `/tables/rows/lookup` — get composed JSON by UUID `{ id }`
+  - PATCH `/tables/{table}/row/{row}` - dit a row
 
 All routes are org-scoped via the authenticated session.
 
