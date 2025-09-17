@@ -66,6 +66,7 @@ type AppColumn struct {
 	IsRequired            bool          `db:"is_required" json:"is_required"`
 	IsIndexed             bool          `db:"is_indexed" json:"is_indexed"`
 	EnumValues            []string      `db:"enum_values" json:"enum_values"`
+	EnumColors            []string      `db:"enum_colors" json:"enum_colors"`
 	IsReference           bool          `db:"is_reference" json:"is_reference"`
 	ReferenceTableID      pgtype.Int8   `db:"reference_table_id" json:"reference_table_id"`
 	RequireDifferentTable bool          `db:"require_different_table" json:"require_different_table"`

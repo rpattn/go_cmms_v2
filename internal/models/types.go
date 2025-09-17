@@ -123,6 +123,7 @@ type TableColumn struct {
     Required              bool     `json:"required"`
     Indexed               bool     `json:"indexed"`
     EnumValues            []string `json:"enum_values,omitempty"`
+    EnumColors            []string `json:"enum_colors,omitempty"`
     IsReference           bool     `json:"is_reference"`
     ReferenceTableID      *int64   `json:"reference_table_id,omitempty"`
     RequireDifferentTable bool     `json:"require_different_table"`
@@ -135,6 +136,7 @@ type TableColumnInput struct {
     Required              bool     `json:"required"`
     Indexed               bool     `json:"indexed"`
     EnumValues            []string `json:"enum_values,omitempty"`
+    EnumColors            []string `json:"enum_colors,omitempty"`
     IsReference           bool     `json:"is_reference"`
     ReferenceTable        string   `json:"reference_table,omitempty"` // slug or name
     RequireDifferentTable bool     `json:"require_different_table"`

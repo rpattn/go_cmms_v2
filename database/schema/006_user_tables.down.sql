@@ -1,5 +1,9 @@
 -- DOWN migration for user-defined logical tables
 
+-- Drop physical per-collection tables first to remove FKs to app.tables
+-- These were created in later migrations under the app_data schema.
+DROP SCHEMA IF EXISTS app_data CASCADE;
+
 -- Drop per-type value tables first (depend on app.rows and app.columns)
 DROP TABLE IF EXISTS app.values_uuid;
 DROP TABLE IF EXISTS app.values_enum;

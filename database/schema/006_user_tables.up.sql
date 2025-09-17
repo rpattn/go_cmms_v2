@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS app.columns (
   is_indexed          boolean NOT NULL DEFAULT false, -- if true, we'll ensure an index
   -- ENUM-only: allowed values
   enum_values         text[] DEFAULT NULL,
+  -- ENUM-only: optional hex colours per value (e.g., #RRGGBB)
+  enum_colors         text[] DEFAULT NULL,
   -- UUID-only: treat as foreign reference to rows in another table?
   is_reference        boolean NOT NULL DEFAULT false,
   reference_table_id  bigint REFERENCES app.tables(id) ON DELETE RESTRICT,
@@ -27,6 +29,15 @@ CREATE TABLE IF NOT EXISTS app.columns (
 
   CONSTRAINT columns_table_name_unique UNIQUE (table_id, name),
   CONSTRAINT enum_values_only_for_enum CHECK ((type = 'enum') = (enum_values IS NOT NULL)),
+  CONSTRAINT enum_colors_only_for_enum CHECK ((enum_colors IS NULL) OR (type = 'enum')),
+  CONSTRAINT enum_colors_match_values_len CHECK ((enum_colors IS NULL) OR (enum_values IS NULL) OR array_length(enum_colors,1) = array_length(enum_values,1)),
+  -- Validate colors without subqueries: ensure no NULL elements and all tokens are valid hex #RRGGBB
+  CONSTRAINT enum_colors_hex_format CHECK (
+    enum_colors IS NULL OR (
+      array_to_string(enum_colors, ',', 'NULL') !~ '(^|,)NULL(,|$)' AND
+      array_to_string(enum_colors, ',') ~ '^(#([A-Fa-f0-9]{6})(,#([A-Fa-f0-9]{6}))*)?$'
+    )
+  ),
   CONSTRAINT reference_only_for_uuid CHECK ((type = 'uuid') OR (NOT is_reference))
 );
 

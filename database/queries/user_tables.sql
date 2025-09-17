@@ -104,6 +104,7 @@ SELECT
   c.is_required,
   c.is_indexed,
   to_jsonb(c.enum_values) AS enum_values,
+  to_jsonb(c.enum_colors) AS enum_colors,
   c.is_reference,
   c.reference_table_id,
   c.require_different_table
@@ -148,6 +149,7 @@ WITH params AS (
     sqlc.arg(is_required)::boolean AS is_required,
     sqlc.arg(is_indexed)::boolean  AS is_indexed,
     sqlc.arg(enum_values)::jsonb   AS enum_values,
+    sqlc.arg(enum_colors)::jsonb   AS enum_colors,
     sqlc.arg(is_reference)::boolean AS is_reference,
     sqlc.arg(reference_table)::text AS reference_table,
     sqlc.arg(require_different_table)::boolean AS require_different_table
@@ -180,7 +182,7 @@ ref_table_id AS (
 ),
 ins AS (
   INSERT INTO app.columns (
-    table_id, name, type, is_required, is_indexed, enum_values, is_reference, reference_table_id, require_different_table
+    table_id, name, type, is_required, is_indexed, enum_values, enum_colors, is_reference, reference_table_id, require_different_table
   )
   SELECT 
     (SELECT id FROM table_id),
@@ -193,11 +195,16 @@ ins AS (
         ARRAY(SELECT jsonb_array_elements_text((SELECT enum_values FROM params)))
       ELSE NULL::text[] END
     ),
+    (
+      CASE WHEN (SELECT col_type FROM params) = 'enum' THEN
+        ARRAY(SELECT jsonb_array_elements_text((SELECT enum_colors FROM params)))
+      ELSE NULL::text[] END
+    ),
     (SELECT is_reference FROM params),
     (SELECT id FROM ref_table_id),
     (SELECT require_different_table FROM params)
   ON CONFLICT (table_id, name) DO NOTHING
-  RETURNING id, table_id, name, type::text AS type, is_required, is_indexed, enum_values, is_reference, reference_table_id, require_different_table
+  RETURNING id, table_id, name, type::text AS type, is_required, is_indexed, enum_values, enum_colors, is_reference, reference_table_id, require_different_table
 ),
 _ensure AS (
   SELECT CASE WHEN (SELECT is_indexed FROM params) THEN app.ensure_index(id) END FROM ins
@@ -205,12 +212,12 @@ _ensure AS (
   SELECT app.add_physical_column(id) FROM ins
 )
 SELECT true AS created,
-       id, table_id, name, type, is_required, is_indexed, to_jsonb(enum_values) AS enum_values,
+       id, table_id, name, type, is_required, is_indexed, to_jsonb(enum_values) AS enum_values, to_jsonb(enum_colors) AS enum_colors,
        is_reference, reference_table_id, require_different_table
 FROM ins
 UNION ALL
 SELECT false AS created,
-       c.id, c.table_id, c.name, c.type::text AS type, c.is_required, c.is_indexed, to_jsonb(c.enum_values) AS enum_values,
+       c.id, c.table_id, c.name, c.type::text AS type, c.is_required, c.is_indexed, to_jsonb(c.enum_values) AS enum_values, to_jsonb(c.enum_colors) AS enum_colors,
        c.is_reference, c.reference_table_id, c.require_different_table
 FROM app.columns c, cname
 WHERE c.table_id = (SELECT id FROM table_id) AND c.name = (SELECT name FROM cname)

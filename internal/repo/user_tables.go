@@ -134,31 +134,38 @@ func (p *pgRepo) GetUserTableSchema(ctx context.Context, org_id uuid.UUID, table
 		return nil, err
 	}
 	out := make([]models.TableColumn, 0, len(rows))
-	for _, r := range rows {
-		var enums []string
-		if len(r.EnumValues) > 0 {
-			if err := json.Unmarshal(r.EnumValues, &enums); err != nil {
-				slog.WarnContext(ctx, "GetUserTableSchema: bad enum_values JSON", "err", err)
-			}
-		}
-		var refID *int64
-		if r.ReferenceTableID.Valid {
-			v := r.ReferenceTableID.Int64
-			refID = &v
-		}
-		out = append(out, models.TableColumn{
-			ID:                    r.ID,
-			Name:                  r.Name,
-			Type:                  r.Type,
-			Required:              r.IsRequired,
-			Indexed:               r.IsIndexed,
-			EnumValues:            enums,
-			IsReference:           r.IsReference,
-			ReferenceTableID:      refID,
-			RequireDifferentTable: r.RequireDifferentTable,
-		})
-	}
-	return out, nil
+    for _, r := range rows {
+        var enums []string
+        if len(r.EnumValues) > 0 {
+            if err := json.Unmarshal(r.EnumValues, &enums); err != nil {
+                slog.WarnContext(ctx, "GetUserTableSchema: bad enum_values JSON", "err", err)
+            }
+        }
+        var colors []string
+        if len(r.EnumColors) > 0 {
+            if err := json.Unmarshal(r.EnumColors, &colors); err != nil {
+                slog.WarnContext(ctx, "GetUserTableSchema: bad enum_colors JSON", "err", err)
+            }
+        }
+        var refID *int64
+        if r.ReferenceTableID.Valid {
+            v := r.ReferenceTableID.Int64
+            refID = &v
+        }
+        out = append(out, models.TableColumn{
+            ID:                    r.ID,
+            Name:                  r.Name,
+            Type:                  r.Type,
+            Required:              r.IsRequired,
+            Indexed:               r.IsIndexed,
+            EnumValues:            enums,
+            EnumColors:            colors,
+            IsReference:           r.IsReference,
+            ReferenceTableID:      refID,
+            RequireDifferentTable: r.RequireDifferentTable,
+        })
+    }
+    return out, nil
 }
 
 func (p *pgRepo) CreateUserTable(ctx context.Context, orgID uuid.UUID, name string) (models.UserTable, bool, error) {
@@ -236,28 +243,38 @@ func (p *pgRepo) DeleteUserTable(ctx context.Context, orgID uuid.UUID, table str
 
 func (p *pgRepo) AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table string, input models.TableColumnInput) (models.TableColumn, bool, error) {
 	slog.DebugContext(ctx, "AddUserTableColumn", "org_id", orgID.String(), "table", table, "name", input.Name)
-	// Marshal enum values to JSON for the query
-	var enumJSON []byte
-	if len(input.EnumValues) > 0 {
-		b, err := json.Marshal(input.EnumValues)
-		if err != nil {
-			slog.ErrorContext(ctx, "AddUserTableColumn: bad enum values", "err", err)
-			return models.TableColumn{}, false, err
-		}
-		enumJSON = b
-	}
-	row, err := p.q.AddUserTableColumn(ctx, db.AddUserTableColumnParams{
-		OrgID:                 fromUUID(orgID),
-		TableName:             table,
-		ColumnName:            input.Name,
-		ColType:               input.Type,
-		IsRequired:            input.Required,
-		IsIndexed:             input.Indexed,
-		EnumValues:            enumJSON,
-		IsReference:           input.IsReference,
-		ReferenceTable:        input.ReferenceTable,
-		RequireDifferentTable: input.RequireDifferentTable,
-	})
+    // Marshal enum values/colors to JSON for the query
+    var enumJSON []byte
+    if len(input.EnumValues) > 0 {
+        b, err := json.Marshal(input.EnumValues)
+        if err != nil {
+            slog.ErrorContext(ctx, "AddUserTableColumn: bad enum values", "err", err)
+            return models.TableColumn{}, false, err
+        }
+        enumJSON = b
+    }
+    var colorsJSON []byte
+    if len(input.EnumColors) > 0 {
+        b, err := json.Marshal(input.EnumColors)
+        if err != nil {
+            slog.ErrorContext(ctx, "AddUserTableColumn: bad enum colors", "err", err)
+            return models.TableColumn{}, false, err
+        }
+        colorsJSON = b
+    }
+    row, err := p.q.AddUserTableColumn(ctx, db.AddUserTableColumnParams{
+        OrgID:                 fromUUID(orgID),
+        TableName:             table,
+        ColumnName:            input.Name,
+        ColType:               input.Type,
+        IsRequired:            input.Required,
+        IsIndexed:             input.Indexed,
+        EnumValues:            enumJSON,
+        EnumColors:            colorsJSON,
+        IsReference:           input.IsReference,
+        ReferenceTable:        input.ReferenceTable,
+        RequireDifferentTable: input.RequireDifferentTable,
+    })
 	if err != nil {
 		slog.ErrorContext(ctx, "AddUserTableColumn failed", "err", err)
 		return models.TableColumn{}, false, err
@@ -268,22 +285,23 @@ func (p *pgRepo) AddUserTableColumn(ctx context.Context, orgID uuid.UUID, table 
 			slog.WarnContext(ctx, "AddUserTableColumn: bad enum_values JSON from DB", "err", err)
 		}
 	}
-	var refID *int64
-	if row.ReferenceTableID.Valid {
-		v := row.ReferenceTableID.Int64
-		refID = &v
-	}
-	col := models.TableColumn{
-		ID:                    row.ID,
-		Name:                  row.Name,
-		Type:                  row.Type,
-		Required:              row.IsRequired,
-		Indexed:               row.IsIndexed,
-		EnumValues:            enums,
-		IsReference:           row.IsReference,
-		ReferenceTableID:      refID,
-		RequireDifferentTable: row.RequireDifferentTable,
-	}
+    var refID *int64
+    if row.ReferenceTableID.Valid {
+        v := row.ReferenceTableID.Int64
+        refID = &v
+    }
+    col := models.TableColumn{
+        ID:                    row.ID,
+        Name:                  row.Name,
+        Type:                  row.Type,
+        Required:              row.IsRequired,
+        Indexed:               row.IsIndexed,
+        EnumValues:            enums,
+        EnumColors:            input.EnumColors,
+        IsReference:           row.IsReference,
+        ReferenceTableID:      refID,
+        RequireDifferentTable: row.RequireDifferentTable,
+    }
 	return col, row.Created, nil
 }
 
