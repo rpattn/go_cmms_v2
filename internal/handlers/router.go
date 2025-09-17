@@ -33,6 +33,7 @@ func RegisterRoutes(mux *chi.Mux, r repo.Repo) {
         sr.Post("/{table}/columns", t.AddColumn)
         sr.Delete("/{table}/columns/{column}", t.RemoveColumn)
         sr.Post("/{table}/rows", t.AddRow)
+        sr.Patch("/{table}/rows/{row_id}", t.UpdateRow)
         sr.Delete("/{table}/rows/{row_id}", t.DeleteRow)
         sr.Post("/{table}/rows/indexed", t.LookupIndexed)
         sr.Post("/rows/lookup", t.LookupRow)

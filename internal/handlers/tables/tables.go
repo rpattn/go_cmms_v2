@@ -1,11 +1,11 @@
 package tables
 
 import (
-	"encoding/json"
-	"net/http"
+    "encoding/json"
+    "net/http"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
+    "github.com/go-chi/chi/v5"
+    "github.com/google/uuid"
 
 	"yourapp/internal/auth"
 	httpserver "yourapp/internal/http"
@@ -291,6 +291,45 @@ func (h *Handler) AddRow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpserver.JSON(w, http.StatusCreated, map[string]any{"row": row})
+}
+
+// UpdateRow handles PATCH /tables/{table}/rows/{row_id} with a JSON body of column values to upsert
+func (h *Handler) UpdateRow(w http.ResponseWriter, r *http.Request) {
+    orgID, ok := auth.OrgFromContext(r.Context())
+    if !ok {
+        httpserver.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+        return
+    }
+    table := chi.URLParam(r, "table")
+    if table == "" {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "missing table"})
+        return
+    }
+    rowIDStr := chi.URLParam(r, "row_id")
+    rid, err := uuid.Parse(rowIDStr)
+    if err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid row_id"})
+        return
+    }
+    defer r.Body.Close()
+    var body map[string]any
+    dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+    if err := dec.Decode(&body); err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+        return
+    }
+    payload, err := json.Marshal(body)
+    if err != nil {
+        httpserver.JSON(w, http.StatusBadRequest, map[string]string{"error": "failed to encode values"})
+        return
+    }
+    row, err := h.repo.UpdateUserTableRow(r.Context(), orgID, table, rid, payload)
+    if err != nil {
+        status, msg := httpserver.PGErrorMessage(err, "update failed")
+        httpserver.JSON(w, status, map[string]string{"error": msg})
+        return
+    }
+    httpserver.JSON(w, http.StatusOK, map[string]any{"row": row})
 }
 
 // LookupRow handles POST /tables/rows/lookup with JSON body {"id":"<uuid>"}

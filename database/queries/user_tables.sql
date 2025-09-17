@@ -243,9 +243,41 @@ phys AS (
            (SELECT values FROM params)
          )
 )
-SELECT i.row_id,
-       app.row_to_json(i.row_id) AS data
+  SELECT i.row_id,
+         app.row_to_json(i.row_id) AS data
 FROM ins i, phys;
+
+-- name: UpdateUserTableRow :one
+WITH params AS (
+  SELECT
+    sqlc.arg(org_id)::uuid      AS org_id,
+    sqlc.arg(table_name)::text  AS table_name,
+    sqlc.arg(row_id)::uuid      AS row_id,
+    sqlc.arg(values)::jsonb     AS values
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+  ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+  LIMIT 1
+),
+target AS (
+  SELECT r.id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id
+  WHERE r.id = (SELECT row_id FROM params)
+    AND r.table_id = (SELECT id FROM table_id)
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+),
+upd AS (
+  SELECT app.update_row((SELECT id FROM target), (SELECT values FROM params))
+)
+SELECT (SELECT id FROM target) AS row_id,
+       app.row_to_json((SELECT id FROM target)) AS data
+FROM upd;
 
 -- name: DeleteUserTable :one
 WITH params AS (

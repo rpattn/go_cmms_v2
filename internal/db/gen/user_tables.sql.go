@@ -666,8 +666,8 @@ phys AS (
            (SELECT values FROM params)
          )
 )
-SELECT i.row_id,
-       app.row_to_json(i.row_id) AS data
+  SELECT i.row_id,
+         app.row_to_json(i.row_id) AS data
 FROM ins i, phys
 `
 
@@ -1071,4 +1071,61 @@ func (q *Queries) SearchUserTable(ctx context.Context, arg SearchUserTableParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateUserTableRow = `-- name: UpdateUserTableRow :one
+WITH params AS (
+  SELECT
+    $1::uuid      AS org_id,
+    $2::text  AS table_name,
+    $3::uuid      AS row_id,
+    $4::jsonb     AS values
+),
+table_id AS (
+  SELECT id
+  FROM app.tables t
+  WHERE (t.slug = lower((SELECT table_name FROM params))
+         OR lower(t.name) = lower((SELECT table_name FROM params)))
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+  ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
+  LIMIT 1
+),
+target AS (
+  SELECT r.id
+  FROM app.rows r
+  JOIN app.tables t ON t.id = r.table_id
+  WHERE r.id = (SELECT row_id FROM params)
+    AND r.table_id = (SELECT id FROM table_id)
+    AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
+),
+upd AS (
+  SELECT app.update_row((SELECT id FROM target), (SELECT values FROM params))
+)
+SELECT (SELECT id FROM target) AS row_id,
+       app.row_to_json((SELECT id FROM target)) AS data
+FROM upd
+`
+
+type UpdateUserTableRowParams struct {
+	OrgID     pgtype.UUID `db:"org_id" json:"org_id"`
+	TableName string      `db:"table_name" json:"table_name"`
+	RowID     pgtype.UUID `db:"row_id" json:"row_id"`
+	Values    []byte      `db:"values" json:"values"`
+}
+
+type UpdateUserTableRowRow struct {
+	RowID pgtype.UUID `db:"row_id" json:"row_id"`
+	Data  []byte      `db:"data" json:"data"`
+}
+
+func (q *Queries) UpdateUserTableRow(ctx context.Context, arg UpdateUserTableRowParams) (UpdateUserTableRowRow, error) {
+	row := q.db.QueryRow(ctx, updateUserTableRow,
+		arg.OrgID,
+		arg.TableName,
+		arg.RowID,
+		arg.Values,
+	)
+	var i UpdateUserTableRowRow
+	err := row.Scan(&i.RowID, &i.Data)
+	return i, err
 }

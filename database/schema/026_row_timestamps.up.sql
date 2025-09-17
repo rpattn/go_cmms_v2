@@ -69,6 +69,7 @@ DECLARE
   rec record;
   col app.columns;
   eav_data jsonb;
+  val_text text; -- scalar unwrapped from JSON (NULL if JSON null)
 BEGIN
   SELECT table_id INTO t_id FROM app.rows WHERE id = p_row_id;
   IF t_id IS NULL THEN RAISE EXCEPTION 'Unknown row_id %', p_row_id; END IF;
@@ -80,29 +81,32 @@ BEGIN
       RAISE EXCEPTION 'Unknown column "%" for table_id %', rec.col_name, t_id;
     END IF;
 
+    -- Unwrap JSON scalar once (JSON null -> NULL)
+    val_text := rec.value #>> '{}';
+
     IF col.type='text' THEN
       INSERT INTO app.values_text(row_id, column_id, value)
-      VALUES (p_row_id, col.id, rec.value::text)
+      VALUES (p_row_id, col.id, val_text)
       ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
     ELSIF col.type='date' THEN
       INSERT INTO app.values_date(row_id, column_id, value)
-      VALUES (p_row_id, col.id, (rec.value)::date)
+      VALUES (p_row_id, col.id, (val_text)::date)
       ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
     ELSIF col.type='bool' THEN
       INSERT INTO app.values_bool(row_id, column_id, value)
-      VALUES (p_row_id, col.id, (rec.value)::boolean)
+      VALUES (p_row_id, col.id, (val_text)::boolean)
       ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
     ELSIF col.type='enum' THEN
       INSERT INTO app.values_enum(row_id, column_id, value)
-      VALUES (p_row_id, col.id, rec.value::text)
+      VALUES (p_row_id, col.id, val_text)
       ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
     ELSIF col.type='uuid' THEN
       INSERT INTO app.values_uuid(row_id, column_id, value)
-      VALUES (p_row_id, col.id, (rec.value)::uuid)
+      VALUES (p_row_id, col.id, (val_text)::uuid)
       ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
     ELSIF col.type='float' THEN
       INSERT INTO app.values_float(row_id, column_id, value)
-      VALUES (p_row_id, col.id, (rec.value)::double precision)
+      VALUES (p_row_id, col.id, (val_text)::double precision)
       ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
     END IF;
 

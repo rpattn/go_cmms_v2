@@ -445,6 +445,27 @@ func (p *pgRepo) DeleteUserTableRow(ctx context.Context, orgID uuid.UUID, table 
 	return r.Deleted, nil
 }
 
+func (p *pgRepo) UpdateUserTableRow(ctx context.Context, orgID uuid.UUID, table string, rowID uuid.UUID, values []byte) (models.TableRow, error) {
+    slog.DebugContext(ctx, "UpdateUserTableRow", "org_id", orgID.String(), "table", table, "row_id", rowID.String())
+    r, err := p.q.UpdateUserTableRow(ctx, db.UpdateUserTableRowParams{
+        OrgID:     fromUUID(orgID),
+        TableName: table,
+        RowID:     fromUUID(rowID),
+        Values:    values,
+    })
+    if err != nil {
+        slog.ErrorContext(ctx, "UpdateUserTableRow failed", "err", err)
+        return models.TableRow{}, err
+    }
+    var data map[string]any
+    if b := toJSONBytes(r.Data); len(b) > 0 {
+        if err := json.Unmarshal(b, &data); err != nil {
+            slog.WarnContext(ctx, "UpdateUserTableRow: bad row JSON", "err", err)
+        }
+    }
+    return models.TableRow{RowID: toUUID(r.RowID), Data: data, TotalCount: 0}, nil
+}
+
 func (p *pgRepo) GetRowLabel(ctx context.Context, orgID uuid.UUID, tableID int64, rowID uuid.UUID) (string, error) {
     lbl, err := p.q.GetRowLabel(ctx, db.GetRowLabelParams{
         OrgID:   fromUUID(orgID),
