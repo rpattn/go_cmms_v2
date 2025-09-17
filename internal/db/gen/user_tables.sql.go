@@ -282,8 +282,8 @@ const createUserTable = `-- name: CreateUserTable :one
 WITH s AS (
   SELECT trim(both '-' from regexp_replace(lower($1::text), '[^a-z0-9]+', '-', 'g')) AS slug
 ), ins AS (
-  INSERT INTO app.tables (org_id, name, slug)
-  SELECT $2::uuid, $1::text, s.slug FROM s
+  INSERT INTO app.tables (org_id, name, slug, storage_mode)
+  SELECT $2::uuid, $1::text, s.slug, 'relational'::app.storage_mode FROM s
   ON CONFLICT (org_id, slug) DO NOTHING
   RETURNING id, name, slug, created_at
 ), tbl AS (
@@ -668,7 +668,7 @@ phys AS (
 )
 SELECT i.row_id,
        app.row_to_json(i.row_id) AS data
-FROM ins i
+FROM ins i, phys
 `
 
 type InsertUserTableRowParams struct {

@@ -115,8 +115,8 @@ ORDER BY c.id ASC;
 WITH s AS (
   SELECT trim(both '-' from regexp_replace(lower(sqlc.arg(name)::text), '[^a-z0-9]+', '-', 'g')) AS slug
 ), ins AS (
-  INSERT INTO app.tables (org_id, name, slug)
-  SELECT sqlc.arg(org_id)::uuid, sqlc.arg(name)::text, s.slug FROM s
+  INSERT INTO app.tables (org_id, name, slug, storage_mode)
+  SELECT sqlc.arg(org_id)::uuid, sqlc.arg(name)::text, s.slug, 'relational'::app.storage_mode FROM s
   ON CONFLICT (org_id, slug) DO NOTHING
   RETURNING id, name, slug, created_at
 ), tbl AS (
@@ -245,7 +245,7 @@ phys AS (
 )
 SELECT i.row_id,
        app.row_to_json(i.row_id) AS data
-FROM ins i;
+FROM ins i, phys;
 
 -- name: DeleteUserTable :one
 WITH params AS (
