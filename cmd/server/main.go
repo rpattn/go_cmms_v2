@@ -63,8 +63,8 @@ func main() {
 	slog.Debug("database connection ready")
 
 	// sqlc queries + repo wrapper
-    q := db.New(pool)
-    r := repo.NewWithDB(pool, q)
+	q := db.New(pool)
+	r := repo.NewWithDB(pool, q)
 
 	// --- Setup OAuth/OIDC providers ---
 	providers := auth.SetupProviders(cfg)
@@ -87,7 +87,7 @@ func main() {
 
 	// --- CORS middleware ---
 	mux.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5500", "http://localhost:3000", "http://127.0.0.1:5500", "http://127.0.0.1:3000"}, // adjust as needed
+		AllowedOrigins:   []string{"http://localhost:5500", "http://localhost:3000", "http://127.0.0.1:5500", "http://127.0.0.1:3000", "http://127.0.0.1:8080"}, // adjust as needed
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},

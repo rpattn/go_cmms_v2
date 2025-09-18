@@ -230,29 +230,44 @@ WITH params AS (
     sqlc.arg(table_name)::text AS table_name,
     sqlc.arg(values)::jsonb    AS values
 ),
-table_id AS (
-  SELECT id
+table_row AS (     -- get the exact row and lock it
+  SELECT t.id, t.org_id
   FROM app.tables t
   WHERE (t.slug = lower((SELECT table_name FROM params))
          OR lower(t.name) = lower((SELECT table_name FROM params)))
     AND (t.org_id = (SELECT org_id FROM params) OR t.org_id IS NULL)
   ORDER BY CASE WHEN t.org_id = (SELECT org_id FROM params) THEN 0 ELSE 1 END
   LIMIT 1
+  FOR UPDATE          -- <— deterministic row-level lock first
+),
+advisory AS (        -- serialize inserts per logical table (and org) for this txn only
+  SELECT pg_advisory_xact_lock(
+           hashtextextended(
+             ((SELECT id FROM table_row))::text
+             || ':' ||
+             ((SELECT org_id FROM params))::text,
+             0
+           )
+         )
 ),
 ins AS (
-  SELECT app.insert_row((SELECT id FROM table_id), (SELECT values FROM params)) AS row_id
+  SELECT app.insert_row(
+    (SELECT id FROM table_row),
+    (SELECT values FROM params)
+  ) AS row_id
 ),
 phys AS (
   SELECT app.insert_row_physical(
-           (SELECT id FROM table_id),
-           (SELECT org_id FROM params),
-           (SELECT row_id FROM ins),
-           (SELECT values FROM params)
-         )
+    (SELECT id FROM table_row),
+    (SELECT org_id FROM params),
+    (SELECT row_id FROM ins),
+    (SELECT values FROM params)
+  )
 )
-  SELECT i.row_id,
-         app.row_to_json(i.row_id) AS data
+SELECT i.row_id,
+       app.row_to_json(i.row_id) AS data
 FROM ins i, phys;
+
 
 -- name: UpdateUserTableRow :one
 WITH params AS (

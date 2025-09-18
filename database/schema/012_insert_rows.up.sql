@@ -35,6 +35,12 @@ BEGIN
       RAISE EXCEPTION 'Required column "%" cannot be null', col.name;
     END IF;
 
+    -- Ensure index before we start mutating value tables so CREATE INDEX
+    -- doesn't contend with the row-level locks we acquire below.
+    IF col.is_indexed THEN
+      PERFORM app.ensure_index(col.id);
+    END IF;
+
     -- Type-directed insert (cast from text)
     IF col.type = 'text'::app.column_type THEN
       -- val_text is already text (can be empty string if user passed "")
@@ -64,11 +70,6 @@ BEGIN
 
     ELSE
       RAISE EXCEPTION 'Unsupported column type "%" for column "%"', col.type, col.name;
-    END IF;
-
-    -- Ensure index if needed
-    IF col.is_indexed THEN
-      PERFORM app.ensure_index(col.id);
     END IF;
 
   END LOOP;

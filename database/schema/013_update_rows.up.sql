@@ -16,6 +16,12 @@ BEGIN
       RAISE EXCEPTION 'Unknown column "%" for table_id %', rec.col_name, t_id;
     END IF;
 
+    -- Ensure any requested index exists before we start modifying the value tables
+    -- so we don't try to build an index while holding conflicting row locks.
+    IF col.is_indexed THEN
+      PERFORM app.ensure_index(col.id);
+    END IF;
+
     -- Upsert into the right value table
     IF col.type='text' THEN
       INSERT INTO app.values_text(row_id, column_id, value)
@@ -43,9 +49,6 @@ BEGIN
       ON CONFLICT (row_id, column_id) DO UPDATE SET value = EXCLUDED.value;
     END IF;
 
-    IF col.is_indexed THEN
-      PERFORM app.ensure_index(col.id);
-    END IF;
   END LOOP;
 
   -- Dual-write: upsert into physical table with merged values
