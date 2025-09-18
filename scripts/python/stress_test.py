@@ -5,6 +5,8 @@ and search endpoints with configurable concurrency.  It intentionally creates
 separate organisations per synthetic user so that each one can provision their
 own tables, columns, and data without interfering with the others.
 
+NOTE: DISABLE THE RATE LIMITER WHEN RUNNING LOCALLY
+
 Usage example::
 
     python scripts/stress_test.py --base-url http://localhost:8080 \
@@ -135,7 +137,7 @@ def build_row_payload(row_idx: int) -> Dict[str, Any]:
         "cost": cost,
         "completed": completed,
     }
-    print(payload)
+    #print(payload)
     return payload
 
 
@@ -349,6 +351,7 @@ async def run_searches(
 
     async def worker(_: int) -> None:
         payload = build_search_payload()
+        #print(payload)
         async with sem:
             start = time.perf_counter()
             resp = await user.client.post(f"/tables/{table.slug}/search", json=payload)

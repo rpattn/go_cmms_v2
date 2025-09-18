@@ -18,20 +18,36 @@ DECLARE
   upd_list text := 'org_id = EXCLUDED.org_id, table_id = EXCLUDED.table_id';
   rec RECORD;
   first boolean := true;
+  lock_id bigint;
 BEGIN
-  SELECT COALESCE(t.schema_name,'app_data'), COALESCE(t.physical_table_name, 't_'||p_table_id::text)
-  INTO sname, tname
-  FROM app.tables t
-  WHERE t.id = p_table_id
-  FOR UPDATE;
+  -- Acquire table metadata locks in deterministic order to avoid deadlocks
+  FOR lock_id IN (
+    SELECT DISTINCT id
+    FROM (
+      SELECT p_table_id AS id
+      UNION ALL
+      SELECT c.reference_table_id
+      FROM app.columns c
+      WHERE c.table_id = p_table_id
+        AND c.reference_table_id IS NOT NULL
+    ) AS ids
+    WHERE id IS NOT NULL
+    ORDER BY id
+  ) LOOP
+    PERFORM 1 FROM app.tables WHERE id = lock_id FOR UPDATE;
+  END LOOP;
 
   PERFORM app.ensure_physical_table(p_table_id);
 
+  SELECT COALESCE(t.schema_name,'app_data'), COALESCE(t.physical_table_name, 't_'||p_table_id::text)
+  INTO sname, tname
+  FROM app.tables t
+  WHERE t.id = p_table_id;
+
   FOR rec IN (
     SELECT c.id AS col_id, c.name AS logical_name, COALESCE(c.physical_column_name, 'c_'||c.id::text) AS phys_name,
-           c.type, COALESCE(c.enum_type_name, format('%I.%I', COALESCE(t.schema_name,'app_data'), 'e_'||c.id::text)) AS enum_type
+           c.type, COALESCE(c.enum_type_name, format('%I.%I', sname, 'e_'||c.id::text)) AS enum_type
     FROM app.columns c
-    JOIN app.tables t ON t.id = c.table_id
     WHERE c.table_id = p_table_id
     ORDER BY c.id
   ) LOOP

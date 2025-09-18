@@ -61,6 +61,10 @@ DECLARE
   sname text;
   tname text;
 BEGIN
+  -- serialize DDL for this logical table to avoid overlapping CREATE TABLE
+  PERFORM pg_advisory_xact_lock(
+           hashtextextended('app.ensure_physical_table:' || p_table_id::text, 0));
+
   -- lock and resolve identifiers
   SELECT COALESCE(schema_name,'app_data'), COALESCE(physical_table_name, 't_'||p_table_id::text)
   INTO sname, tname
@@ -122,24 +126,70 @@ DECLARE
   ref_tname text;
   fk_name text;
 BEGIN
-  -- fetch column + owning table metadata and lock the column
-  SELECT c.table_id, COALESCE(t.schema_name,'app_data'), COALESCE(t.physical_table_name, 't_'||c.table_id::text),
-         COALESCE(c.physical_column_name, 'c_'||c.id::text), c.type, c.is_required, c.is_indexed,
-         c.is_reference, c.reference_table_id, c.require_different_table,
-         c.enum_values, c.enum_type_name
-  INTO t_id, sname, tname, cname, ctype, required, is_indexed, is_ref, ref_table_id, req_diff,
-       enum_vals, enum_type
+  -- fetch column metadata and lock the column row
+  SELECT c.table_id,
+         COALESCE(c.physical_column_name, 'c_'||c.id::text),
+         c.type,
+         c.is_required,
+         c.is_indexed,
+         c.is_reference,
+         c.reference_table_id,
+         c.require_different_table,
+         c.enum_values,
+         c.enum_type_name
+  INTO t_id, cname, ctype, required, is_indexed, is_ref, ref_table_id, req_diff, enum_vals, enum_type
   FROM app.columns c
-  JOIN app.tables t ON t.id = c.table_id
   WHERE c.id = p_column_id
   FOR UPDATE;
-
   -- persist computed names
+  IF t_id IS NULL THEN
+    RAISE EXCEPTION 'Unknown column id %', p_column_id;
+  END IF;
+
+  -- lock related table rows in deterministic order to avoid deadlocks
+  IF is_ref AND ref_table_id IS NOT NULL AND ref_table_id <> t_id THEN
+    IF ref_table_id < t_id THEN
+      PERFORM 1 FROM app.tables WHERE id = ref_table_id FOR UPDATE;
+      PERFORM 1 FROM app.tables WHERE id = t_id FOR UPDATE;
+    ELSE
+      PERFORM 1 FROM app.tables WHERE id = t_id FOR UPDATE;
+      PERFORM 1 FROM app.tables WHERE id = ref_table_id FOR UPDATE;
+    END IF;
+  ELSE
+    PERFORM 1 FROM app.tables WHERE id = t_id FOR UPDATE;
+  END IF;
+
+  -- fetch/update table naming metadata after acquiring locks
+  SELECT COALESCE(schema_name,'app_data'), COALESCE(physical_table_name, 't_'||t_id::text)
+  INTO sname, tname
+  FROM app.tables
+  WHERE id = t_id;
+
+  IF sname IS NULL OR tname IS NULL THEN
+    RAISE EXCEPTION 'Unknown table id % for column %', t_id, p_column_id;
+  END IF;
+
   UPDATE app.columns SET physical_column_name = cname WHERE id = p_column_id;
   UPDATE app.tables  SET schema_name = sname, physical_table_name = tname WHERE id = t_id;
 
-  -- ensure table exists
-  PERFORM app.ensure_physical_table(t_id);
+  -- ensure required physical tables in deterministic order to avoid DDL deadlocks
+  IF is_ref AND ref_table_id IS NOT NULL AND ref_table_id <> t_id THEN
+    IF ref_table_id < t_id THEN
+      PERFORM app.ensure_physical_table(ref_table_id);
+      PERFORM app.ensure_physical_table(t_id);
+    ELSE
+      PERFORM app.ensure_physical_table(t_id);
+      PERFORM app.ensure_physical_table(ref_table_id);
+    END IF;
+  ELSE
+    PERFORM app.ensure_physical_table(t_id);
+  END IF;
+
+  -- refresh resolved identifiers after ensuring physical storage
+  SELECT COALESCE(schema_name,'app_data'), COALESCE(physical_table_name, 't_'||t_id::text)
+  INTO sname, tname
+  FROM app.tables
+  WHERE id = t_id;
 
   -- resolve SQL type
   IF ctype = 'text' THEN
@@ -193,8 +243,6 @@ BEGIN
 
   -- Add FK for UUID references when reference_table_id is set
   IF ctype = 'uuid' AND is_ref AND ref_table_id IS NOT NULL THEN
-    -- ensure target table exists
-    PERFORM app.ensure_physical_table(ref_table_id);
     SELECT COALESCE(schema_name,'app_data'), COALESCE(physical_table_name, 't_'||ref_table_id::text)
       INTO ref_sname, ref_tname
     FROM app.tables
