@@ -6,6 +6,8 @@ separate organisations per synthetic user so that each one can provision their
 own tables, columns, and data without interfering with the others.
 
 NOTE: DISABLE THE RATE LIMITER WHEN RUNNING LOCALLY
+NOTE: View postgres logs with sudo bash -lc 'tail -F /var/lib/postgresql/16/main/log/postgresql-*.log'
+----- Ensure logging is enabled and this path is correct for you
 
 Usage example::
 
