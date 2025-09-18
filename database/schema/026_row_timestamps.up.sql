@@ -26,6 +26,14 @@ DECLARE
   sname text;
   tname text;
 BEGIN
+  -- serialize DDL for this table id to avoid overlapping CREATE TABLEs grabbing
+  -- conflicting ShareRowExclusive locks. This mirrors the behaviour in the
+  -- original rollout (021_physical_storage) where we took the same advisory
+  -- lock. Without it, concurrent inserts that race to lazily provision the
+  -- physical table can deadlock when CREATE TABLE IF NOT EXISTS runs in two
+  -- transactions simultaneously.
+  PERFORM pg_advisory_xact_lock(
+           hashtextextended('app.ensure_physical_table:' || p_table_id::text, 0));
   SELECT COALESCE(schema_name,'app_data'), COALESCE(physical_table_name, 't_'||p_table_id::text)
   INTO sname, tname
   FROM app.tables

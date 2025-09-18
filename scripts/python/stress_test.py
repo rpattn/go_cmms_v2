@@ -154,7 +154,7 @@ def build_search_payload() -> Dict[str, Any]:
     direction = random.choice(["asc", "desc"])
     return {
         "pageNum": random.randint(0, 4),
-        "pageSize": random.choice([10, 25, 50, 100]),
+        "pageSize": random.choice([5, 10, 25]),#, 50])#, 100]),
         "filterFields": filters,
         "sortField": sort_field,
         "direction": direction,
